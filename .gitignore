@@ -9,3 +9,11 @@ phpstan.neon
 testbench.yaml
 vendor
 node_modules
+
+# AI Agent tooling (lokal, nicht versioniert)
+agentforge.yaml
+agentforge.lock
+.agentforge.json
+.opencode/
+opencode.json
+AGENTS.md

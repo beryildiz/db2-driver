@@ -1,9 +1,11 @@
 <?php
 
-namespace BWICompanies\DB2Driver\Tests;
+declare(strict_types=1);
 
-use BWICompanies\DB2Driver\DB2DriverServiceProvider;
-use Illuminate\Database\Eloquent\Factories\Factory;
+namespace Beryildiz\DB2Driver\Tests;
+
+use Beryildiz\DB2Driver\DB2DriverServiceProvider;
+use Beryildiz\DB2Driver\DB2ServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 class TestCase extends Orchestra
@@ -11,26 +13,18 @@ class TestCase extends Orchestra
     protected function setUp(): void
     {
         parent::setUp();
-
-        Factory::guessFactoryNamesUsing(
-            fn (string $modelName) => 'BWICompanies\\DB2Driver\\Database\\Factories\\'.class_basename($modelName).'Factory'
-        );
     }
 
-    protected function getPackageProviders($app)
+    protected function getPackageProviders($app): array
     {
         return [
             DB2DriverServiceProvider::class,
+            DB2ServiceProvider::class,
         ];
     }
 
-    public function getEnvironmentSetUp($app)
+    public function getEnvironmentSetUp($app): void
     {
         config()->set('database.default', 'testing');
-
-        /*
-        $migration = include __DIR__.'/../database/migrations/create_db2-driver_table.php.stub';
-        $migration->up();
-        */
     }
 }

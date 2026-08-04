@@ -1,8 +1,8 @@
 # Conventions — db2-driver
 
 ## Namespace & Autoloading
-- Produktiv: `BWICompanies\DB2Driver\` → `src/`
-- Tests: `BWICompanies\DB2Driver\Tests\` → `tests/`
+- Produktiv: `Beryildiz\DB2Driver\` → `src/`
+- Tests: `Beryildiz\DB2Driver\Tests\` → `tests/`
 - PSR-4
 
 ## Code-Stil

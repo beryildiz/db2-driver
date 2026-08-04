@@ -1,6 +1,8 @@
 <?php
 
-namespace BWICompanies\DB2Driver\Schema;
+declare(strict_types=1);
+
+namespace Beryildiz\DB2Driver\Schema;
 
 use Closure;
 use Illuminate\Database\Schema\Blueprint;

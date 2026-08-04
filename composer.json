@@ -1,17 +1,16 @@
 {
-    "name": "bwicompanies/db2-driver",
+    "name": "beryildiz/db2-driver",
     "description": "DB2 for IBM iSeries drop-in Laravel driver",
     "keywords": [
-        "BWICompanies",
+        "Beryildiz",
         "laravel",
         "db2-driver"
     ],
-    "homepage": "https://github.com/bwicompanies/db2-driver",
+    "homepage": "https://github.com/beryildiz/db2-driver",
     "license": "MIT",
     "authors": [
         {
-            "name": "Bennett Black",
-            "email": "bennett@sent.com",
+            "name": "Beryildiz",
             "role": "Developer"
         }
     ],
@@ -31,12 +30,12 @@
     },
     "autoload": {
         "psr-4": {
-            "BWICompanies\\DB2Driver\\": "src"
+            "Beryildiz\\DB2Driver\\": "src"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "BWICompanies\\DB2Driver\\Tests\\": "tests"
+            "Beryildiz\\DB2Driver\\Tests\\": "tests"
         }
     },
     "scripts": {
@@ -56,8 +55,8 @@
     "extra": {
         "laravel": {
             "providers": [
-                "BWICompanies\\DB2Driver\\DB2DriverServiceProvider",
-                "BWICompanies\\DB2Driver\\DB2ServiceProvider"
+                "Beryildiz\\DB2Driver\\DB2DriverServiceProvider",
+                "Beryildiz\\DB2Driver\\DB2ServiceProvider"
             ]
         }
     },

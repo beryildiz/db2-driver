@@ -1,6 +1,8 @@
 <?php
 
-namespace BWICompanies\DB2Driver\Schema;
+declare(strict_types=1);
+
+namespace Beryildiz\DB2Driver\Schema;
 
 use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Blueprint;
@@ -25,15 +27,9 @@ class DB2Blueprint extends Blueprint
         return $this->replyListSequenceNumber;
     }
 
-    /**
-     * Set the sequence number of reply list entries.
-     *
-     * @param  int  $replyListSequenceNumber
-     * @return void
-     */
-    public function setReplyListSequenceNumber(int $replyListSequenceNumber)
+    public function setReplyListSequenceNumber(int $replyListSequenceNumber): void
     {
-        return $this->replyListSequenceNumber = $replyListSequenceNumber;
+        $this->replyListSequenceNumber = $replyListSequenceNumber;
     }
 
     /**
@@ -101,10 +97,6 @@ class DB2Blueprint extends Blueprint
             case 'index':
                 $indexSystem = false;
 
-                if (! is_null($index)) {
-                    //$indexSystem = $index;
-                }
-
                 $index = $this->createIndexName($type, $columns);
 
                 return $this->addCommand($type, compact('index', 'indexSystem', 'columns'));
@@ -131,7 +123,7 @@ class DB2Blueprint extends Blueprint
     public function boolean($column)
     {
         $prefix = $this->table;
-        // Aucune utilité d'avoir le nom du schéma dans le préfixe de la contrainte check pour le type booléen
+        // Schema name is not needed in the check constraint prefix for boolean type
         $schemaTable = explode('.', $this->table);
 
         if (count($schemaTable) > 1) {
@@ -155,9 +147,9 @@ class DB2Blueprint extends Blueprint
     }
 
     /**
-     * ^NOTE: No idea what this col is for
+     * Add synchronization columns (id_sync, hashcode, optional data_master) to the table.
      */
-    public function synchro($index, $masterizable = false)
+    public function synchro(string $index, bool $masterizable = false): void
     {
         $this->string('id_sync', 20)
              ->index($index);
@@ -170,9 +162,9 @@ class DB2Blueprint extends Blueprint
     }
 
     /**
-     * ^NOTE: No idea what this col is for
+     * Drop synchronization columns (id_sync, hashcode) and their index from the table.
      */
-    public function dropSynchro($index)
+    public function dropSynchro(string $index): void
     {
         $this->dropColumn('id_sync', 'hashcode');
         $this->dropIndex($index);

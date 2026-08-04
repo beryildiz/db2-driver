@@ -1,6 +1,8 @@
 <?php
 
-namespace BWICompanies\DB2Driver;
+declare(strict_types=1);
+
+namespace Beryildiz\DB2Driver;
 
 use Illuminate\Database\Connectors\Connector;
 use Illuminate\Database\Connectors\ConnectorInterface;
@@ -16,10 +18,8 @@ class DB2Connector extends Connector implements ConnectorInterface
         );
 
         if (isset($config['schema']) && $config['schema'] !== '') {
-            $schema = $config['schema'];
-
-            $connection->prepare('set schema '.$schema)
-                       ->execute();
+            $connection->prepare('SET SCHEMA ?')
+                       ->execute([$config['schema']]);
         }
 
         return $connection;

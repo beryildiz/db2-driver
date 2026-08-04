@@ -1,9 +1,11 @@
 <?php
 
-namespace BWICompanies\DB2Driver;
+declare(strict_types=1);
 
-use BWICompanies\DB2Driver\Schema\DB2Builder;
-use BWICompanies\DB2Driver\Schema\DB2SchemaGrammar;
+namespace Beryildiz\DB2Driver;
+
+use Beryildiz\DB2Driver\Schema\DB2Builder;
+use Beryildiz\DB2Driver\Schema\DB2SchemaGrammar;
 use Illuminate\Database\Connection;
 use PDO;
 
@@ -26,7 +28,7 @@ class DB2Connection extends Connection
         array $config = []
         ) {
         parent::__construct($pdo, $database, $tablePrefix, $config);
-        $this->currentSchema = $this->defaultSchema = strtoupper($config['schema'] ?? null);
+        $this->currentSchema = $this->defaultSchema = strtoupper($config['schema'] ?? '');
     }
 
     /**
@@ -40,7 +42,7 @@ class DB2Connection extends Connection
     /**
      * Reset to default the current schema.
      */
-    public function resetCurrentSchema()
+    public function resetCurrentSchema(): void
     {
         $this->setCurrentSchema($this->getDefaultSchema());
     }
@@ -48,7 +50,7 @@ class DB2Connection extends Connection
     /**
      * Set the name of the current schema.
      */
-    public function setCurrentSchema(string $schema)
+    public function setCurrentSchema(string $schema): void
     {
         $this->statement('SET SCHEMA ?', [$schema !== "" ? strtoupper($schema) : "DEFAULT"]);
     }
@@ -56,7 +58,7 @@ class DB2Connection extends Connection
     /**
      * Execute a system command on IBMi.
      */
-    public function executeCommand($command)
+    public function executeCommand(string $command): void
     {
         $this->statement('CALL QSYS2.QCMDEXC(?)', [$command]);
     }
@@ -64,7 +66,7 @@ class DB2Connection extends Connection
     /**
      * Get a schema builder instance for the connection.
      */
-    public function getSchemaBuilder()
+    public function getSchemaBuilder(): DB2Builder
     {
         if (is_null($this->schemaGrammar)) {
             $this->useDefaultSchemaGrammar();
@@ -73,10 +75,7 @@ class DB2Connection extends Connection
         return new DB2Builder($this);
     }
 
-    /**
-     * @return \Illuminate\Database\Grammar
-     */
-    protected function getDefaultQueryGrammar()
+    protected function getDefaultQueryGrammar(): \Illuminate\Database\Grammar
     {
         $defaultGrammar = new DB2QueryGrammar;
 
@@ -85,7 +84,7 @@ class DB2Connection extends Connection
             $defaultGrammar->setDateFormat($this->config['date_format']);
         }
 
-        // If offset compatability mode was specified in constructor
+        // If offset compatibility mode was specified in constructor
         if (array_key_exists('offset_compatibility_mode', $this->config)) {
             $defaultGrammar->setOffsetCompatibilityMode($this->config['offset_compatibility_mode']);
         }
@@ -94,7 +93,7 @@ class DB2Connection extends Connection
     }
 
     /**
-     * Get the efault grammar for specified Schema
+     * Get the default grammar for specified Schema
      */
     protected function getDefaultSchemaGrammar(): \Illuminate\Database\Grammar
     {

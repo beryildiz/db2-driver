@@ -1,8 +1,9 @@
 <?php
 
-namespace BWICompanies\DB2Driver;
+declare(strict_types=1);
 
-use BWICompanies\DB2Driver\DB2QueryGrammar;
+namespace Beryildiz\DB2Driver;
+
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Processors\Processor;
 

@@ -1,8 +1,8 @@
 # Core — db2-driver
 
 Laravel-Paket: DB2/IBM iSeries Drop-in Driver für Laravel.
-Namespace: `BWICompanies\DB2Driver\`
-Paketname: `bwicompanies/db2-driver`
+Namespace: `Beryildiz\DB2Driver\`
+Paketname: `beryildiz/db2-driver`
 
 ## Source Map
 

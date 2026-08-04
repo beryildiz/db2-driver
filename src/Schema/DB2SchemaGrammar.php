@@ -1,6 +1,8 @@
 <?php
 
-namespace BWICompanies\DB2Driver\Schema;
+declare(strict_types=1);
+
+namespace Beryildiz\DB2Driver\Schema;
 
 use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Expression;
@@ -122,7 +124,6 @@ class DB2SchemaGrammar extends Grammar
             // Each of the column types have their own compiler functions which are tasked
             // with turning the column definition into its SQL format for this platform
             // used by the connection. The column's modifiers are compiled and added.
-            //$sql = $this->wrap($column).' '.$this->getType($column);
             $sql = $this->addPreModifiers($this->wrap($column), $blueprint, $column);
             $sql .= ' '.$this->getType($column);
 
@@ -183,7 +184,7 @@ class DB2SchemaGrammar extends Grammar
         $table = $this->wrapTable($blueprint);
         $columns = $this->columnize($command->columns);
 
-        // Aucune utilité d'avoir le nom du schéma dans le nom de la contrainte Primary
+        // Schema name is not needed in the constraint name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
@@ -211,7 +212,7 @@ class DB2SchemaGrammar extends Grammar
         $columns = $this->columnize($command->columns);
         $onColumns = $this->columnize((array) $command->references);
 
-        // Aucune utilité d'avoir le nom du schéma dans le nom de la contrainte Foreign
+        // Schema name is not needed in the constraint name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
@@ -247,7 +248,7 @@ class DB2SchemaGrammar extends Grammar
         $table = $this->wrapTable($blueprint);
         $columns = $this->columnize($command->columns);
 
-        // Aucune utilité d'avoir le nom du schéma dans le nom de la contrainte Unique
+        // Schema name is not needed in the constraint name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
@@ -269,7 +270,7 @@ class DB2SchemaGrammar extends Grammar
         $table = $this->wrapTable($blueprint);
         $columns = $this->columnize($command->columns);
 
-        // Aucune utilité d'avoir le nom du schéma dans le nom de la contrainte Index
+        // Schema name is not needed in the constraint name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
@@ -284,7 +285,6 @@ class DB2SchemaGrammar extends Grammar
 
         $sql .= " on {$table}($columns)";
 
-        //return "create index {$command->index} for system name on {$table}($columns)";
         return $sql;
     }
 
@@ -300,16 +300,9 @@ class DB2SchemaGrammar extends Grammar
         return 'drop table '.$this->wrapTable($blueprint);
     }
 
-    /**
-     * Compile a drop table (if exists) command.
-     *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
-     * @return string
-     */
-    public function compileDropIfExists(Blueprint $blueprint, Fluent $command)
+    public function compileDropIfExists(Blueprint $blueprint, Fluent $command): string
     {
-        return 'drop table if exists '.$this->wrapTable($blueprint);
+        return 'drop table '.$this->wrapTable($blueprint);
     }
 
     /**
@@ -339,25 +332,18 @@ class DB2SchemaGrammar extends Grammar
         return 'alter table '.$this->wrapTable($blueprint).' drop primary key';
     }
 
-    /**
-     * Compile a drop unique key command.
-     *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
-     * @return string
-     */
-    public function compileDropUnique(Blueprint $blueprint, Fluent $command)
+    public function compileDropUnique(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
 
-        // Aucune utilité d'avoir le nom du schéma dans le nom de la contrainte Unique
+        // Schema name is not needed in the constraint name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
             $command->index = str_replace($schemaTable[0].'_', '', $command->index);
         }
 
-        return "alter table {$table} drop index {$command->index}";
+        return "alter table {$table} drop constraint {$command->index}";
     }
 
     /**
@@ -371,7 +357,7 @@ class DB2SchemaGrammar extends Grammar
     {
         $table = $this->wrapTable($blueprint);
 
-        // Aucune utilité d'avoir le nom du schéma dans le nom de la contrainte Index
+        // Schema name is not needed in the constraint name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
@@ -381,25 +367,18 @@ class DB2SchemaGrammar extends Grammar
         return "alter table {$table} drop index {$command->index}";
     }
 
-    /**
-     * Compile a drop foreign key command.
-     *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
-     * @return string
-     */
-    public function compileDropForeign(Blueprint $blueprint, Fluent $command)
+    public function compileDropForeign(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
 
-        // Aucune utilité d'avoir le nom du schéma dans le nom de la contrainte Foreign
+        // Schema name is not needed in the constraint name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
             $command->index = str_replace($schemaTable[0].'_', '', $command->index);
         }
 
-        return "alter table {$table} drop foreign key {$command->index}";
+        return "alter table {$table} drop constraint {$command->index}";
     }
 
     /**
@@ -569,15 +548,11 @@ class DB2SchemaGrammar extends Grammar
         return sprintf($definition, $column->type, $column->prefix, $column->name, $column->name, is_null($column->default) ? ' default 0' : '');
     }
 
-    /**
-     * Create the column definition for an enum type.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
-     */
-    protected function typeEnum(Fluent $column)
+    protected function typeEnum(Fluent $column): string
     {
-        return "enum('".implode("', '", $column->allowed)."')";
+        $allowed = array_map(fn (string $v): string => "'{$v}'", $column->allowed);
+
+        return 'varchar(255) constraint '.$column->name.'_enum check('.$column->name.' in ('.implode(', ', $allowed).'))';
     }
 
     /**
@@ -657,8 +632,6 @@ class DB2SchemaGrammar extends Grammar
     {
         return 'char(36)';
     }
-
-
 
     /**
      * Get the SQL for a nullable column modifier.
@@ -806,7 +779,7 @@ class DB2SchemaGrammar extends Grammar
      * @param  \Illuminate\Support\Fluent  $command
      * @return string
      */
-    private function compileExecuteCommand(Blueprint $blueprint, Fluent $command)
+    private function compileExecuteCommand(Blueprint $blueprint, Fluent $command): string
     {
         return "CALL QSYS2.QCMDEXC('".$command->command."')";
     }

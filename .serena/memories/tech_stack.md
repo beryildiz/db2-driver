@@ -1,19 +1,23 @@
 # Tech Stack — db2-driver
 
-## Runtime
-- PHP ^8.1
-- Laravel-kompatibel: ^9 | ^10 | ^11 | ^12
-- `illuminate/database`, `illuminate/contracts`, `illuminate/support`
-- `spatie/laravel-package-tools` ^1.13
+## Namespace
+- Alle Quelldateien: `Beryildiz\DB2Driver` (PSR-4 in composer.json)
+- Tests: `Beryildiz\DB2Driver\Tests`
+- ACHTUNG: Das `read`-Tool kann veraltete Inhalte zeigen — immer per Shell verifizieren
 
-## Dev-Dependencies
-- **Test-Runner:** Pest ^1.21 | ^3.7 + `pestphp/pest-plugin-laravel`
-- **Testbench:** `orchestra/testbench` ^7.0 | ^10.0
-- **Static Analysis:** PHPStan via `vendor/bin/phpstan` (config: `phpstan.neon`, gitignored → lokal anlegen)
-- **Formatter:** Laravel Pint via `vendor/bin/pint`
-- **PHPUnit:** ^9.5 | ^11.5.3 (Basis für Pest)
+## Verfügbare Verifikationstools
+- `vendor/bin/pest` ✅ installiert
+- `vendor/bin/pint` ❌ NICHT installiert
+- `vendor/bin/phpstan` ❌ NICHT installiert
 
-## Paket-Manager
-- Composer; `composer.lock` ist **gitignored** (Library-Paket)
+## Testbench-Cache
+- Cache-Datei: `vendor/orchestra/testbench-core/laravel/bootstrap/cache/packages.php`
+- Bei Namespace-Änderungen: `php vendor/bin/testbench package:discover --ansi` ausführen
 
-## Kein Frontend-Stack (reines PHP-Backend-Paket)
+## Klassen-Übersicht
+- `DB2QueryGrammar` — Query-Grammatik, `offsetCompatibilityMode=true` per Default
+- `DB2SchemaGrammar` — Schema-Grammatik (information_schema-basiert)
+- `DB2Connector` — DSN-Aufbau via `getDsn(array $config)`
+- `DB2Processor` — `processColumnListing()` gibt Input unverändert zurück
+- `DB2ServiceProvider` — registriert Connection-Resolver für 'db2'-Driver
+- `DB2DriverServiceProvider` — Spatie PackageServiceProvider

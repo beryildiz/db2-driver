@@ -61,18 +61,16 @@ mehr). V2, V3, V4, V6, V7, V9 sind **behoben** (siehe unten). V1 ist damit struk
 
 - **V1 (strukturell erledigt)** — nur noch Laravel 12 deklariert, kein Multi-Version-Support mehr
   vorzutäuschen.
-- **V4 — behoben.** `compileRenameColumn()` (ALTER TABLE ... RENAME COLUMN ... TO ...) und
-  `compileChange()` (mehrere ALTER-COLUMN-Klauseln: SET DATA TYPE, SET/DROP NOT NULL, SET DEFAULT)
-  in `DB2SchemaGrammar` ergänzt. `compileChange()` diffed bewusst nicht gegen den alten
-  Spaltenzustand (keine Introspection, siehe V5) und wirft für autoIncrement/generated/renameTo
-  eine sprechende `RuntimeException` statt falsches SQL zu erzeugen. Getestet in
-  `tests/Unit/DB2SchemaGrammarTest.php`.
 
-## Mittel (🟠)
+## Mittel (🟠) — weiterhin offen
 
 - **V5** — Schema-Introspection fehlt (`compileTables/Views/Columns/Indexes/ForeignKeys`, `dropAllTables()`) → `Schema::getColumns()`, `db:show`, `db:table`, `migrate:fresh` funktionieren nicht.
-- **V8** — `phpunit.xml.dist` ist PHPUnit-9-only (`backupStaticAttributes`, `convertErrorsToExceptions`, `verbose`) → bricht auf PHPUnit 10+.
-- **V10** — Kein CI, `pint`/`phpstan` fehlen in `require-dev`, `phpstan.neon`+`testbench.yaml` gitignored, `minimum-stability: dev`, README bewirbt alten Paketnamen.
+
+## Behoben (Infrastruktur/Tooling)
+
+- **V4 — behoben.** `compileRenameColumn()` und `compileChange()` in `DB2SchemaGrammar` ergänzt. Tested in `tests/Unit/DB2SchemaGrammarTest.php`.
+- **V8 — behoben.** `phpunit.xml.dist` nutzt PHPUnit-11-Schema (`<source>`, keine veralteten Attribute).
+- **V10 — behoben.** CI-Workflows existieren, `pint`/`larastan` in `require-dev`, `phpstan.neon`/`phpstan-baseline.neon`/`pint.json` versioniert, README auf `beryildiz` korrigiert, kein `minimum-stability: dev`.
 
 ## Kritisch (🔴) — behoben (weitere)
 
@@ -82,6 +80,17 @@ mehr). V2, V3, V4, V6, V7, V9 sind **behoben** (siehe unten). V1 ist damit struk
   das wurde zu `RPY('I')` korrigiert (sonst doppeltes Escaping → `''''`). `README.md` bewarb noch
   `bwicompanies/db2-driver` (V10-Symptom, README-Teil separat gefixt: Paketname + Banner-URL auf
   `beryildiz` korrigiert, Laravel-12-only-Hinweis in Requirements ergänzt).
+
+## Neue Defekte (entdeckt nach L12-Migration, kein V-Tag bisher)
+
+| ID | Ort | Befund | Schwere |
+|---|---|---|---|
+| N1 | `Schema/DB2Blueprint.php:91-97` | `indexCommand()` verwirft für Typ `index` den übergebenen Namen → `synchro()`/`dropSynchro()` inkonsistent | 🔴 |
+| N2 | `Schema/DB2SchemaGrammar.php:372-384` | `compileDropIndex`: `alter table X drop index Y` — DB2 for i kennt kein `ALTER TABLE … DROP INDEX`; korrekt: `drop index Y` | 🔴 |
+| N3 | `Schema/DB2SchemaGrammar.php:534-573` | `typeDate/typeTime/typeTimestamp` hängen bei `!nullable` selbst `default current_*` an; `modifyDefault` hängt bei explizitem Default noch ein zweites `default` an → ungültiges SQL | 🟠 |
+| N4 | `DB2Connector.php:21-22` | `SET SCHEMA ?` als Binding (V7-Fehlerklasse) + kein `strtoupper` — inkonsistent zu `DB2Connection::setCurrentSchema()` | 🟠 |
+| N5 | `Schema/DB2Builder.php:60` | `$r->column_name` lowercase; IBM i liefert uppercase → undefined property. `getColumnListing` nutzt `getDatabaseName()` statt `getDefaultSchema()` als Schema-Quelle | 🟠 |
+| N6 | `.github/workflows/static.yml:16,26` | `composer install` ohne Lock-Datei (gitignored) → Composer fällt implizit auf Update zurück; `tests.yml` macht es korrekt mit `composer update` | 🟡 |
 
 ## Duplikationen
 

@@ -50,6 +50,26 @@ it('getDsn fügt odbc_keywords korrekt an', function () {
         ->toContain('NAM=1');
 });
 
+it('normalizeSchema gibt Schema-Namen in Großbuchstaben zurück', function () {
+    $connector = new DB2Connector;
+
+    $ref = new ReflectionMethod($connector, 'normalizeSchema');
+    $ref->setAccessible(true);
+
+    expect($ref->invoke($connector, 'mylib'))->toBe('MYLIB');
+    expect($ref->invoke($connector, 'MY_SCHEMA'))->toBe('MY_SCHEMA');
+});
+
+it('normalizeSchema wirft InvalidArgumentException bei ungültigem Schema-Namen', function () {
+    $connector = new DB2Connector;
+
+    $ref = new ReflectionMethod($connector, 'normalizeSchema');
+    $ref->setAccessible(true);
+
+    expect(fn () => $ref->invoke($connector, 'foo; DROP TABLE users'))->toThrow(InvalidArgumentException::class);
+    expect(fn () => $ref->invoke($connector, "foo'bar"))->toThrow(InvalidArgumentException::class);
+});
+
 it('getDsn ohne odbc_keywords enthält keine zusätzlichen Segmente', function () {
     $connector = new DB2Connector;
 

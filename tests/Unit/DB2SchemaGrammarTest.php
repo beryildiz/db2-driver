@@ -188,6 +188,70 @@ it('compileChange wirft RuntimeException bei autoIncrement-Änderung', function 
         ->toThrow(RuntimeException::class);
 });
 
+it('compileDropIndex erzeugt DROP INDEX (kein ALTER TABLE)', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('orders');
+    $command = new Fluent(['index' => 'orders_status_index']);
+
+    $sql = $grammar->compileDropIndex($blueprint, $command);
+
+    expect($sql)
+        ->toStartWith('drop index')
+        ->not->toContain('alter table');
+});
+
+it('compileDropIndex entfernt Schema-Prefix aus Indexnamen bei qualifiziertem Tabellennamen', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('myschema.orders');
+    $command = new Fluent(['index' => 'myschema_orders_status_index']);
+
+    $sql = $grammar->compileDropIndex($blueprint, $command);
+
+    expect($sql)
+        ->toStartWith('drop index')
+        ->toContain('orders_status_index')
+        ->not->toContain('myschema_orders_status_index');
+});
+
+it('typeTimestamp nicht-nullable ohne explizites Default enthält genau ein default current_timestamp', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $column = new Fluent(['type' => 'timestamp', 'name' => 'created_at', 'nullable' => false, 'default' => null]);
+
+    $sql = callProtected($grammar, 'typeTimestamp', $column);
+
+    expect($sql)->toBe('timestamp default current_timestamp');
+});
+
+it('typeTimestamp mit explizitem Default enthält kein implizites current_timestamp', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $column = new Fluent(['type' => 'timestamp', 'name' => 'created_at', 'nullable' => false, 'default' => '2024-01-01 00:00:00']);
+
+    $sql = callProtected($grammar, 'typeTimestamp', $column);
+
+    expect($sql)->toBe('timestamp');
+});
+
+it('typeDate nicht-nullable ohne Default enthält genau ein default current_date', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $column = new Fluent(['type' => 'date', 'name' => 'day', 'nullable' => false, 'default' => null]);
+
+    expect(callProtected($grammar, 'typeDate', $column))->toBe('date default current_date');
+});
+
+it('typeDate mit explizitem Default enthält kein implizites current_date', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $column = new Fluent(['type' => 'date', 'name' => 'day', 'nullable' => false, 'default' => '2024-01-01']);
+
+    expect(callProtected($grammar, 'typeDate', $column))->toBe('date');
+});
+
+it('typeTime nicht-nullable ohne Default enthält genau ein default current_time', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $column = new Fluent(['type' => 'time', 'name' => 'slot', 'nullable' => false, 'default' => null]);
+
+    expect(callProtected($grammar, 'typeTime', $column))->toBe('time default current_time');
+});
+
 it('compileExecuteCommand verdoppelt einfache Anführungszeichen im Kommando genau einmal', function () {
     $grammar = new DB2SchemaGrammar(makeConnection());
     $blueprint = makeBlueprint('orders');

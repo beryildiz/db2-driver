@@ -81,6 +81,11 @@ class DB2Blueprint extends Blueprint
      * Laravel 12 hat den Elternparameter $operatorClass (Postgres-Operatorklassen) hinzugefügt —
      * ohne ihn hier ist die Signatur inkompatibel (Fatal Error beim Laden der Klasse).
      *
+     * Für Typ 'index': explizit übergebenen Namen respektieren (nur generieren, wenn null) und
+     * indexSystem-Flag anhängen — ohne diesen Zweig würde ein explizites
+     * $table->index($cols, 'my_idx') stumm einen anderen Namen erzeugen, was
+     * synchro()/dropSynchro() inkonsistent macht.
+     *
      * @param  string|array  $columns
      * @return Fluent
      */
@@ -88,15 +93,14 @@ class DB2Blueprint extends Blueprint
     {
         $columns = (array) $columns;
 
-        switch ($type) {
-            case 'index':
-                $indexSystem = false;
+        if ($type === 'index') {
+            $indexSystem = false;
 
+            if (is_null($index)) {
                 $index = $this->createIndexName($type, $columns);
+            }
 
-                return $this->addCommand($type, compact('index', 'indexSystem', 'columns'));
-            default:
-                break;
+            return $this->addCommand($type, compact('index', 'indexSystem', 'columns'));
         }
 
         // If no name was specified for this index, we will create one using a basic

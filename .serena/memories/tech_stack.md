@@ -16,13 +16,12 @@
 - `vendor/bin/pint` ✅ installiert (`laravel/pint ^1.18`, `pint.json` Preset `laravel`, versioniert,
   NICHT gitignored)
 - `vendor/bin/phpstan` ✅ installiert (`larastan/larastan ^3.1`, Level 5, `phpstan.neon` inkl.
-  `phpstan-baseline.neon` — beide versioniert, NICHT gitignored). Baseline enthält 89 Einträge,
-  ausschließlich `property.notFound`/`method.notFound`/`function.impossibleType`/
-  `isset.property`/`nullCoalesce.property`/`deadCode.unreachable` auf `Fluent`-Magic-Properties
-  bzw. generischen Illuminate-Basisklassen-Typisierungen (`Connection`/`Grammar`/`Processor`/
-  `Builder` kennen die konkreten DB2-Subklassen-Methoden nicht). Keine echten Bugs — dokumentiertes
-  Problem, siehe `architecture/decisions` → „PHPStan"-Abschnitt. Baseline nur schrumpfen, nicht
-  wachsen lassen.
+  `phpstan-baseline.neon` — beide versioniert, NICHT gitignored). Baseline enthält **94 Einträge**: `property.notFound` (27×), `method.notFound` (7×),
+  `function.impossibleType` (3×), `deadCode.unreachable` (1×), `nullCoalesce.property` (1×),
+  `isset.property` (1×), `isset.offset` (1×, `DB2QueryGrammar` — defensiv), `arguments.count`
+  (1×, `DB2Builder::hasTable()` ruft `compileTableExists()` mit 0 statt 2 Pflicht-Args auf —
+  Design-Folge, da DB2SchemaGrammar Default-Parameter hat). Keine echten Laufzeit-Bugs —
+  dokumentiertes Problem. Baseline nur schrumpfen, nicht wachsen lassen.
 - CI: `.github/workflows/tests.yml` (Matrix PHP 8.2/8.3/8.4 × prefer-lowest/prefer-stable, keine
   Laravel-Version-Dimension mehr — L12-only) und `.github/workflows/static.yml` (Pint + PHPStan,
   PHP 8.3).

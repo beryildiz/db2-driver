@@ -368,19 +368,22 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Compile a drop index command.
+     *
+     * DB2 for i kennt kein "ALTER TABLE … DROP INDEX" — korrekte Syntax ist "DROP INDEX <name>".
+     * Der Schema-Prefix wird aus dem Indexnamen entfernt (wie in compileDropUnique/compilePrimary).
      */
     public function compileDropIndex(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
 
-        // Schema name is not needed in the constraint name
+        // Schema name is not needed in the index name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
             $command->index = str_replace($schemaTable[0].'_', '', $command->index);
         }
 
-        return "alter table {$table} drop index {$command->index}";
+        return "drop index {$command->index}";
     }
 
     public function compileDropForeign(Blueprint $blueprint, Fluent $command): string
@@ -530,10 +533,13 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a date type.
+     *
+     * Das implizite DEFAULT wird nur gesetzt, wenn kein explizites Default angegeben ist —
+     * sonst würde modifyDefault() ein zweites DEFAULT anhängen und ungültiges SQL erzeugen.
      */
     protected function typeDate(Fluent $column): string
     {
-        if (! $column->nullable) {
+        if (! $column->nullable && is_null($column->default)) {
             return 'date default current_date';
         }
 
@@ -550,10 +556,13 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a time type.
+     *
+     * Das implizite DEFAULT wird nur gesetzt, wenn kein explizites Default angegeben ist —
+     * sonst würde modifyDefault() ein zweites DEFAULT anhängen und ungültiges SQL erzeugen.
      */
     protected function typeTime(Fluent $column): string
     {
-        if (! $column->nullable) {
+        if (! $column->nullable && is_null($column->default)) {
             return 'time default current_time';
         }
 
@@ -562,10 +571,13 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a timestamp type.
+     *
+     * Das implizite DEFAULT wird nur gesetzt, wenn kein explizites Default angegeben ist —
+     * sonst würde modifyDefault() ein zweites DEFAULT anhängen und ungültiges SQL erzeugen.
      */
     protected function typeTimestamp(Fluent $column): string
     {
-        if (! $column->nullable) {
+        if (! $column->nullable && is_null($column->default)) {
             return 'timestamp default current_timestamp';
         }
 

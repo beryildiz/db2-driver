@@ -18,11 +18,32 @@ class DB2Connector extends Connector implements ConnectorInterface
         );
 
         if (isset($config['schema']) && $config['schema'] !== '') {
-            $connection->prepare('SET SCHEMA ?')
-                ->execute([$config['schema']]);
+            $schema = $this->normalizeSchema($config['schema']);
+            $connection->exec("SET SCHEMA {$schema}");
         }
 
         return $connection;
+    }
+
+    /**
+     * Normalisiert und validiert einen Schema-Namen.
+     *
+     * Gibt den Namen in Großbuchstaben zurück. Wirft eine InvalidArgumentException,
+     * wenn der Name nicht identifier-sicher ist (Injection-Schutz — kein Binding,
+     * weil DB2 for i SET SCHEMA ? je nach Treiberversion ablehnt, identisch zu V7).
+     * Erlaubt: Buchstaben, Ziffern, Unterstrich, $, @, #, Punkt.
+     */
+    protected function normalizeSchema(string $schema): string
+    {
+        $schema = strtoupper($schema);
+
+        if (! preg_match('/^[A-Z0-9_$@#.]+$/', $schema)) {
+            throw new \InvalidArgumentException(
+                "DB2Connector: Ungültiger Schema-Name \"{$schema}\". Nur A-Z, 0-9, _, \$, @, # und . erlaubt."
+            );
+        }
+
+        return $schema;
     }
 
     /**

@@ -722,9 +722,18 @@ class DB2SchemaGrammar extends Grammar
      *
      * Seit Laravel 12 wird die Connection nicht mehr durchgereicht — die Grammar hat über
      * $this->connection (Illuminate\Database\Grammar) bereits Zugriff auf ihre Connection.
+     *
+     * Erfordert einen DB2Blueprint, da nur dieser setReplyListSequenceNumber() kennt.
+     * Ein fremder Blueprint hier ist ein Konfigurationsfehler (DB2Builder erzeugt immer DB2Blueprint).
      */
     public function compileAddReplyListEntry(Blueprint $blueprint, Fluent $command): string
     {
+        if (! $blueprint instanceof DB2Blueprint) {
+            throw new \LogicException(
+                'compileAddReplyListEntry erfordert einen DB2Blueprint, erhalten: '.get_class($blueprint)
+            );
+        }
+
         $sequenceNumberQuery = <<<'EOT'
             with reply_list_info(sequence_number) as (
                 values(1)
@@ -752,9 +761,17 @@ EOT;
 
     /**
      * Compile a removeReplyListEntry command.
+     *
+     * Erfordert einen DB2Blueprint, da nur dieser getReplyListSequenceNumber() kennt.
      */
     public function compileRemoveReplyListEntry(Blueprint $blueprint, Fluent $command): string
     {
+        if (! $blueprint instanceof DB2Blueprint) {
+            throw new \LogicException(
+                'compileRemoveReplyListEntry erfordert einen DB2Blueprint, erhalten: '.get_class($blueprint)
+            );
+        }
+
         $sequenceNumber = $blueprint->getReplyListSequenceNumber();
         $command->command = "RMVRPYLE SEQNBR($sequenceNumber)";
 

@@ -95,10 +95,14 @@ Stufe 1 ist der eigentliche Contributor-Enabler und ersetzt die heutigen schwach
 
 ## PHPStan
 
-**Level 5 + committete Baseline, NICHT Level 8.** Larastan Level 8 auf Grammar-Code mit
-`Fluent`-Magic-Properties (`$column->allowed`, `$command->indexSystem`, `$column->startWith`
-— alle `mixed`) ist ohne massenhafte `@property`-Annotationen unerreichbar. Baseline pro PR
-nur schrumpfen. Level-Steigerung erst nach `DB2Config` + VOs.
+**Level 5, keine Baseline.** Zwei Config-Parameter in `phpstan.neon` ersetzen die alte Baseline:
+- `universalObjectCratesClasses: [Illuminate\Support\Fluent]` — Fluent ist per Design ein
+  Property-Bag; PHPStan soll keine `property.notFound` auf `Fluent`/`ColumnDefinition` melden.
+- `treatPhpDocTypesAsCertain: false` — Laravel-PHPDoc ist nachweislich zu lax (nullable
+  Properties ohne `?`); native Typen bleiben voll geprüft.
+Echte method.notFound-Fehler in `DB2Builder`/`DB2SchemaGrammar` sind durch Narrowing-Accessoren
+mit `instanceof`-Guard behoben. Level-Steigerung (6+) ist jetzt möglich, aber erst nach V5
+(Introspection) sinnvoll — dann gibt es echten Coverage-Gewinn.
 
 ## CI
 

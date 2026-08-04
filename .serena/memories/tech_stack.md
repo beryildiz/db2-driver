@@ -15,13 +15,15 @@
 - `vendor/bin/pest` ✅ installiert
 - `vendor/bin/pint` ✅ installiert (`laravel/pint ^1.18`, `pint.json` Preset `laravel`, versioniert,
   NICHT gitignored)
-- `vendor/bin/phpstan` ✅ installiert (`larastan/larastan ^3.1`, Level 5, `phpstan.neon` inkl.
-  `phpstan-baseline.neon` — beide versioniert, NICHT gitignored). Baseline enthält **94 Einträge**: `property.notFound` (27×), `method.notFound` (7×),
-  `function.impossibleType` (3×), `deadCode.unreachable` (1×), `nullCoalesce.property` (1×),
-  `isset.property` (1×), `isset.offset` (1×, `DB2QueryGrammar` — defensiv), `arguments.count`
-  (1×, `DB2Builder::hasTable()` ruft `compileTableExists()` mit 0 statt 2 Pflicht-Args auf —
-  Design-Folge, da DB2SchemaGrammar Default-Parameter hat). Keine echten Laufzeit-Bugs —
-  dokumentiertes Problem. Baseline nur schrumpfen, nicht wachsen lassen.
+- `vendor/bin/phpstan` ✅ installiert (`larastan/larastan ^3.1`, Level 5). **Keine Baseline** —
+  `phpstan-baseline.neon` gelöscht. `phpstan.neon` enthält stattdessen:
+  - `universalObjectCratesClasses: [Illuminate\Support\Fluent]` — korrekte Modellierung, da
+    `Fluent` ein dynamischer Attribut-Container ist (wie `Request`, das larastan schon so behandelt).
+    Gilt automatisch für `ColumnDefinition`, `IndexDefinition` und alle weiteren Subklassen.
+  - `treatPhpDocTypesAsCertain: false` — Illuminates PHPDoc ist an mehreren Stellen zu lax
+    (`Connection::$schemaGrammar @var Grammar` obwohl faktisch nullable; `Builder::$resolver
+    @var \Closure` obwohl faktisch nullable). Native PHP-Typen bleiben voll geprüft.
+  Ziel: **0 PHPStan-Fehler** ohne Baseline. Keine neuen Baseline-Einträge erlaubt.
 - CI: `.github/workflows/tests.yml` (Matrix PHP 8.2/8.3/8.4 × prefer-lowest/prefer-stable, keine
   Laravel-Version-Dimension mehr — L12-only) und `.github/workflows/static.yml` (Pint + PHPStan,
   PHP 8.3).

@@ -1,6 +1,5 @@
 includes:
     - vendor/larastan/larastan/extension.neon
-    - phpstan-baseline.neon
 
 parameters:
     paths:
@@ -9,3 +8,16 @@ parameters:
     level: 5
 
     tmpDir: build/phpstan
+
+    # Fluent ist ein dynamischer Attribut-Container (__get/__set) — identisch zu
+    # Illuminate\Http\Request, das larastan bereits so behandelt. Alle Subklassen
+    # (ColumnDefinition, IndexDefinition, DB2-eigene Fluents) profitieren automatisch.
+    universalObjectCratesClasses:
+        - Illuminate\Support\Fluent
+
+    # Illuminates PHPDoc ist an mehreren Stellen zu lax (Connection::$schemaGrammar
+    # ist @var Grammar obwohl Laravel selbst is_null() darauf prüft; Builder::$resolver
+    # ist @var \Closure obwohl Laravel selbst isset() darauf prüft). Native PHP-Typen
+    # bleiben voll geprüft — nur fremde PHPDoc-Behauptungen werden nicht mehr als
+    # absolute Gewissheit behandelt.
+    treatPhpDocTypesAsCertain: false

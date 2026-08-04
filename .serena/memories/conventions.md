@@ -15,6 +15,7 @@
 
 ## Wichtige Einschränkungen
 - `composer.lock` ist **gitignored** (Library-Paket — kein Lock-File committen)
-- `phpstan.neon`, `phpstan-baseline.neon` und `pint.json` sind **versioniert** (CI-Reproduzierbarkeit,
-  seit Phase-0-CI-Fundament — vorher gitignored, das war ein Fehler)
+- `phpstan.neon` und `pint.json` sind **versioniert**. `phpstan-baseline.neon` existiert **nicht**
+  (gelöscht — PHPStan läuft ohne Baseline auf 0 Fehler dank `universalObjectCratesClasses` +
+  `treatPhpDocTypesAsCertain: false`). Keine neuen Baseline-Einträge erlaubt.
 - `testbench.yaml` existiert nicht und wird nicht benötigt — `tests/TestCase.php::getEnvironmentSetUp()` reicht aus

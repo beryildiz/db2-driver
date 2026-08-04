@@ -91,6 +91,7 @@ mehr). V2, V3, V4, V6, V7, V9 sind **behoben** (siehe unten). V1 ist damit struk
 | N4 | `DB2Connector.php:21-22` | `SET SCHEMA ?` als Binding (V7-Fehlerklasse) + kein `strtoupper` — inkonsistent zu `DB2Connection::setCurrentSchema()` | 🟠 |
 | N5 | `Schema/DB2Builder.php:60` | `$r->column_name` lowercase; IBM i liefert uppercase → undefined property. `getColumnListing` nutzt `getDatabaseName()` statt `getDefaultSchema()` als Schema-Quelle | 🟠 |
 | N6 | `.github/workflows/static.yml:16,26` | `composer install` ohne Lock-Datei (gitignored) → Composer fällt implizit auf Update zurück; `tests.yml` macht es korrekt mit `composer update` | 🟡 |
+| N7 | `DB2QueryGrammar.php:95` (alt) | **Logikbug (behoben):** `isset($query->getRawBindings()['order'])` war immer `true` (Key existiert garantiert im Shape) → Order-Bindings wurden bedingungslos nach `select` verschoben. Fix: `!== []` | ✅ |
 
 ## Duplikationen
 

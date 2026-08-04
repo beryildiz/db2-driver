@@ -11,10 +11,8 @@ class DB2QueryGrammar extends Grammar
 {
     /**
      * The format for database stored dates.
-     *
-     * @var string
      */
-    protected $dateFormat;
+    protected ?string $dateFormat = null;
 
     /**
      * Offset compatibility mode true triggers FETCH FIRST X ROWS and ROW_NUM behavior for older versions of DB2
@@ -90,9 +88,11 @@ class DB2QueryGrammar extends Grammar
 
         $components['columns'] = $this->compileOver($orderings, $columns);
 
-        // if there are bindings in the order, we need to move them to the select since we are moving the parameter
-        // markers there with the OVER statement
-        if (isset($query->getRawBindings()['order'])) {
+        // Order-Bindings in "select" verschieben, damit sie mit dem OVER-Statement korrekt
+        // positioniert sind — aber nur, wenn tatsächlich Order-Bindings existieren.
+        // isset() ist hier ungeeignet: der 'order'-Key im Bindings-Shape existiert garantiert
+        // (siehe Builder::getRawBindings() @return-Shape), also wäre isset() immer true.
+        if ($query->getRawBindings()['order'] !== []) {
             $query->addBinding($query->getRawBindings()['order'], 'select');
             $query->setBindings([], 'order');
         }

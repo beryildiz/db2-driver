@@ -54,7 +54,7 @@ class DB2Builder extends Builder
         ]);
 
         $res = $this->connection->getPostProcessor()
-                                ->processColumnListing($results);
+            ->processColumnListing($results);
 
         return array_values(array_map(function ($r) {
             return $r->column_name;
@@ -63,6 +63,9 @@ class DB2Builder extends Builder
 
     /**
      * Execute the blueprint to build / modify the table.
+     *
+     * Seit Laravel 12 ist Blueprint::build() parameterlos — Connection/Grammar sind bereits
+     * im Blueprint-Konstruktor gesetzt.
      */
     protected function build(Blueprint $blueprint)
     {
@@ -72,19 +75,27 @@ class DB2Builder extends Builder
             $this->connection->setCurrentSchema($schemaTable[0]);
         }
 
-        $blueprint->build($this->connection, $this->grammar);
+        $blueprint->build();
         $this->connection->resetCurrentSchema();
     }
 
     /**
      * Create a new command set with a Closure.
+     *
+     * Seit Laravel 12 erhält der Resolver die Connection als ersten Parameter
+     * (siehe Illuminate\Database\Schema\Builder::createBlueprint()).
+     *
+     * @return DB2Blueprint
      */
-    protected function createBlueprint($table, Closure $callback = null)
+    protected function createBlueprint($table, ?Closure $callback = null)
     {
+        $connection = $this->connection;
+
         if (isset($this->resolver)) {
-            return call_user_func($this->resolver, $table, $callback);
+            /** @var DB2Blueprint */
+            return call_user_func($this->resolver, $connection, $table, $callback);
         }
 
-        return new DB2Blueprint($table, $callback);
+        return new DB2Blueprint($connection, $table, $callback);
     }
 }

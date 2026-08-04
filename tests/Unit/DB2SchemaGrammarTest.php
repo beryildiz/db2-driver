@@ -18,11 +18,11 @@ function callProtected(object $object, string $method, mixed ...$args): mixed
 // Hilfsfunktion: Erstellt einen minimalen Blueprint-Stub
 function makeBlueprint(string $table = 'test_table'): Blueprint
 {
-    return new Blueprint($table);
+    return new Blueprint(makeConnection(), $table);
 }
 
 it('compileTableExists gibt SQL mit information_schema.tables zurück', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
 
     $sql = $grammar->compileTableExists();
 
@@ -33,7 +33,7 @@ it('compileTableExists gibt SQL mit information_schema.tables zurück', function
 });
 
 it('compileColumnExists gibt SQL mit information_schema.columns zurück', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
 
     $sql = $grammar->compileColumnExists();
 
@@ -43,12 +43,12 @@ it('compileColumnExists gibt SQL mit information_schema.columns zurück', functi
 });
 
 it('typeBoolean-Spalte enthält smallint und check constraint', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
 
     $column = new Fluent([
-        'type'    => 'boolean',
-        'prefix'  => 'tbl',
-        'name'    => 'active',
+        'type' => 'boolean',
+        'prefix' => 'tbl',
+        'name' => 'active',
         'default' => null,
     ]);
 
@@ -61,11 +61,11 @@ it('typeBoolean-Spalte enthält smallint und check constraint', function () {
 });
 
 it('typeEnum-Spalte enthält die erlaubten Werte', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
 
     $column = new Fluent([
-        'type'    => 'enum',
-        'name'    => 'status',
+        'type' => 'enum',
+        'name' => 'status',
         'allowed' => ['active', 'inactive', 'pending'],
     ]);
 
@@ -81,9 +81,9 @@ it('typeEnum-Spalte enthält die erlaubten Werte', function () {
 });
 
 it('compileDrop gibt drop table zurück', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
     $blueprint = makeBlueprint('orders');
-    $command = new Fluent();
+    $command = new Fluent;
 
     $sql = $grammar->compileDrop($blueprint, $command);
 
@@ -93,9 +93,9 @@ it('compileDrop gibt drop table zurück', function () {
 });
 
 it('compileDropIfExists gibt drop table zurück (kein IF EXISTS)', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
     $blueprint = makeBlueprint('orders');
-    $command = new Fluent();
+    $command = new Fluent;
 
     $sql = $grammar->compileDropIfExists($blueprint, $command);
 
@@ -106,7 +106,7 @@ it('compileDropIfExists gibt drop table zurück (kein IF EXISTS)', function () {
 });
 
 it('compileDropUnique verwendet DROP CONSTRAINT statt DROP INDEX', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
     $blueprint = makeBlueprint('orders');
     $command = new Fluent(['index' => 'orders_status_unique']);
 
@@ -118,7 +118,7 @@ it('compileDropUnique verwendet DROP CONSTRAINT statt DROP INDEX', function () {
 });
 
 it('compileDropForeign verwendet DROP CONSTRAINT statt DROP FOREIGN KEY', function () {
-    $grammar = new DB2SchemaGrammar();
+    $grammar = new DB2SchemaGrammar(makeConnection());
     $blueprint = makeBlueprint('orders');
     $command = new Fluent(['index' => 'orders_user_id_foreign']);
 
@@ -127,4 +127,74 @@ it('compileDropForeign verwendet DROP CONSTRAINT statt DROP FOREIGN KEY', functi
     expect($sql)
         ->toContain('drop constraint')
         ->not->toContain('drop foreign key');
+});
+
+it('compileRenameColumn gibt ALTER TABLE ... RENAME COLUMN ... TO ... zurück', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('orders');
+    $command = new Fluent(['from' => 'old_name', 'to' => 'new_name']);
+
+    $sql = $grammar->compileRenameColumn($blueprint, $command);
+
+    expect($sql)
+        ->toContain('alter table')
+        ->toContain('rename column')
+        ->toContain('old_name')
+        ->toContain('to')
+        ->toContain('new_name');
+});
+
+it('compileChange gibt SET DATA TYPE Statement für eine reine Typ-Änderung zurück', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('orders');
+    $column = new Fluent([
+        'type' => 'string',
+        'name' => 'status',
+        'length' => 100,
+        'nullable' => true,
+        'default' => null,
+        'autoIncrement' => false,
+        'generated' => null,
+        'renameTo' => null,
+    ]);
+    $command = new Fluent(['column' => $column]);
+
+    $statements = $grammar->compileChange($blueprint, $command);
+
+    expect($statements)->toBeArray();
+    expect($statements[0])
+        ->toContain('alter table')
+        ->toContain('alter column')
+        ->toContain('set data type')
+        ->toContain('varchar(100)');
+    expect($statements[1])->toContain('drop not null');
+});
+
+it('compileChange wirft RuntimeException bei autoIncrement-Änderung', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('orders');
+    $column = new Fluent([
+        'type' => 'integer',
+        'name' => 'id',
+        'nullable' => false,
+        'default' => null,
+        'autoIncrement' => true,
+        'generated' => null,
+        'renameTo' => null,
+    ]);
+    $command = new Fluent(['column' => $column]);
+
+    expect(fn () => $grammar->compileChange($blueprint, $command))
+        ->toThrow(RuntimeException::class);
+});
+
+it('compileExecuteCommand verdoppelt einfache Anführungszeichen im Kommando genau einmal', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('orders');
+    $command = new Fluent(['command' => "TEST 'value'"]);
+
+    $sql = callProtected($grammar, 'compileExecuteCommand', $blueprint, $command);
+
+    expect($sql)
+        ->toBe("CALL QSYS2.QCMDEXC('TEST ''value''')");
 });

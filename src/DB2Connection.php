@@ -24,11 +24,11 @@ class DB2Connection extends Connection
     protected $currentSchema;
 
     public function __construct(
-        PDO $pdo,
+        PDO|\Closure $pdo,
         string $database = '',
         string $tablePrefix = '',
         array $config = []
-        ) {
+    ) {
         parent::__construct($pdo, $database, $tablePrefix, $config);
         $this->currentSchema = $this->defaultSchema = strtoupper($config['schema'] ?? '');
     }
@@ -54,7 +54,15 @@ class DB2Connection extends Connection
      */
     public function setCurrentSchema(string $schema): void
     {
-        $this->statement('SET SCHEMA ?', [$schema !== "" ? strtoupper($schema) : "DEFAULT"]);
+        // "DEFAULT" ist ein SQL-Schlüsselwort und darf NICHT als Parameter-Binding gesendet werden,
+        // sonst setzt DB2 das Schema auf ein Schema, das wörtlich "DEFAULT" heißt.
+        if ($schema === '') {
+            $this->statement('SET SCHEMA DEFAULT');
+
+            return;
+        }
+
+        $this->statement('SET SCHEMA ?', [strtoupper($schema)]);
     }
 
     /**
@@ -79,7 +87,10 @@ class DB2Connection extends Connection
 
     protected function getDefaultQueryGrammar(): Grammar
     {
-        $defaultGrammar = new DB2QueryGrammar;
+        // Seit Laravel 12 nimmt Grammar die Connection im Konstruktor entgegen (liefert u.a.
+        // den Table-Prefix selbst über $connection->getTablePrefix()) — Connection::withTablePrefix()
+        // existiert nicht mehr.
+        $defaultGrammar = new DB2QueryGrammar($this);
 
         // If a date format was specified in constructor
         if (array_key_exists('date_format', $this->config)) {
@@ -91,7 +102,7 @@ class DB2Connection extends Connection
             $defaultGrammar->setOffsetCompatibilityMode($this->config['offset_compatibility_mode']);
         }
 
-        return $this->withTablePrefix($defaultGrammar);
+        return $defaultGrammar;
     }
 
     /**
@@ -99,7 +110,7 @@ class DB2Connection extends Connection
      */
     protected function getDefaultSchemaGrammar(): Grammar
     {
-        return new DB2SchemaGrammar;
+        return new DB2SchemaGrammar($this);
     }
 
     /**

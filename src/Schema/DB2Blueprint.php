@@ -4,18 +4,21 @@ declare(strict_types=1);
 
 namespace Beryildiz\DB2Driver\Schema;
 
-use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Database\Schema\Grammars\Grammar;
+use Illuminate\Database\Schema\ColumnDefinition;
+use Illuminate\Support\Fluent;
 
 class DB2Blueprint extends Blueprint
 {
     /**
      * The sequence number of reply list entries.
-     *
-     * @var int
      */
-    private $replyListSequenceNumber;
+    private int $replyListSequenceNumber;
+
+    /**
+     * The system name for the table (IBM i short name, max 10 chars).
+     */
+    public string $systemName = '';
 
     /**
      * Get the sequence number of reply list entries.
@@ -35,24 +38,20 @@ class DB2Blueprint extends Blueprint
     /**
      * Get the raw SQL statements for the blueprint.
      *
-     * @param  Connection  $connection
-     * @param  \Illuminate\Database\Schema\Grammars\Grammar  $grammar
-     * @return array
+     * Seit Laravel 12 ist toSql() parameterlos — Blueprint hält Connection/Grammar bereits
+     * intern (per Konstruktor), sie müssen nicht mehr durchgereicht werden.
      */
-    public function toSql(Connection $connection, Grammar $grammar)
+    public function toSql(): array
     {
-        $this->addReplyListEntryCommands($connection);
+        $this->addReplyListEntryCommands();
 
-        return parent::toSql($connection, $grammar);
+        return parent::toSql();
     }
 
     /**
      * Add the commands that are necessary to DROP and Rename statements on IBMi.
-     *
-     * @param  Connection  $connection
-     * @return void
      */
-    protected function addReplyListEntryCommands(Connection $connection)
+    protected function addReplyListEntryCommands(): void
     {
         if ($this->commandsNamed(['dropColumn', 'renameColumn'])->count() > 0) {
             array_unshift($this->commands, $this->createCommand('addReplyListEntry'), $this->createCommand('changeJob'));
@@ -62,21 +61,16 @@ class DB2Blueprint extends Blueprint
 
     /**
      * Specify a system name for the table.
-     *
-     * @param  string  $systemName
      */
-    public function forSystemName($systemName)
+    public function forSystemName(string $systemName): void
     {
         $this->systemName = $systemName;
     }
 
     /**
      * Specify a label for the table.
-     *
-     * @param  string  $label
-     * @return Fluent
      */
-    public function label($label)
+    public function label(string $label): Fluent
     {
         return $this->addCommand('label', compact('label'));
     }
@@ -84,12 +78,13 @@ class DB2Blueprint extends Blueprint
     /**
      * Add a new index command to the blueprint.
      *
-     * @param  string  $type
+     * Laravel 12 hat den Elternparameter $operatorClass (Postgres-Operatorklassen) hinzugefügt —
+     * ohne ihn hier ist die Signatur inkompatibel (Fatal Error beim Laden der Klasse).
+     *
      * @param  string|array  $columns
-     * @param  string  $index
      * @return Fluent
      */
-    protected function indexCommand($type, $columns, $index, $algorithm = null)
+    protected function indexCommand($type, $columns, $index, $algorithm = null, $operatorClass = null)
     {
         $columns = (array) $columns;
 
@@ -117,8 +112,7 @@ class DB2Blueprint extends Blueprint
     /**
      * Create a new boolean column on the table.
      *
-     * @param  string  $column
-     * @return Fluent
+     * @return ColumnDefinition
      */
     public function boolean($column)
     {
@@ -135,13 +129,8 @@ class DB2Blueprint extends Blueprint
 
     /**
      * Create a new numeric column on the table.
-     *
-     * @param  string  $column
-     * @param  int  $total
-     * @param  int  $places
-     * @return Fluent
      */
-    public function numeric($column, $total = 8, $places = 2)
+    public function numeric(string $column, int $total = 8, int $places = 2): Fluent
     {
         return $this->addColumn('numeric', $column, compact('total', 'places'));
     }
@@ -152,12 +141,12 @@ class DB2Blueprint extends Blueprint
     public function synchro(string $index, bool $masterizable = false): void
     {
         $this->string('id_sync', 20)
-             ->index($index);
+            ->index($index);
         $this->string('hashcode', 32);
 
-        if (true === $masterizable) {
+        if ($masterizable === true) {
             $this->boolean('data_master')
-                 ->default(true);
+                ->default(true);
         }
     }
 

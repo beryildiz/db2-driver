@@ -1,9 +1,11 @@
-[<img src="https://banners.beyondco.de/db2-driver.png?theme=dark&packageManager=composer+require&packageName=bwicompanies%2Fdb2-driver&pattern=bankNote&style=style_1&description=DB2+for+IBM+iSeries+connectivity+for+Laravel&md=1&showWatermark=0&fontSize=100px&images=server&widths=auto"/>]()
+[<img src="https://banners.beyondco.de/db2-driver.png?theme=dark&packageManager=composer+require&packageName=beryildiz%2Fdb2-driver&pattern=bankNote&style=style_1&description=DB2+for+IBM+iSeries+connectivity+for+Laravel&md=1&showWatermark=0&fontSize=100px&images=server&widths=auto"/>]()
 
 # DB2 for IBM iSeries Laravel Driver
 This package allows you to use Laravel's query builder and eloquent with DB2 for IBM iSeries by extending the Illuminate Database component of the Laravel framework. Originally forked from [cooperl22/laravel-db2](https://github.com/cooperl22/laravel-db2).
 
 ## Requirements
+- PHP `^8.2`
+- Laravel 12 (`illuminate/* ^12.0`) — this version supports **exclusively** Laravel 12, see [CHANGELOG.md](CHANGELOG.md)
 - PHP PDO_ODBC extension
 - IBM i Access ODBC Driver ([Windows & Linux](https://ibmi-oss-docs.readthedocs.io/en/latest/odbc/installation.html))
 
@@ -12,7 +14,7 @@ This package allows you to use Laravel's query builder and eloquent with DB2 for
 Install the package via composer:
 
 ```bash
-composer require bwicompanies/db2-driver
+composer require beryildiz/db2-driver
 ```
 
 Add a new connection in `database.php`:

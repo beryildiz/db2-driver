@@ -23,13 +23,8 @@ class DB2QueryGrammar extends Grammar
      */
     protected $offsetCompatibilityMode = true;
 
-    /**
-     * Wrap a single string in keyword identifiers.
-     *
-     * @param  string  $value
-     * @return string
-     */
-    protected function wrapValue($value)
+    /** @param string $value */
+    protected function wrapValue($value): string
     {
         if ($value === '*') {
             return $value;
@@ -38,14 +33,7 @@ class DB2QueryGrammar extends Grammar
         return str_replace('"', '""', $value);
     }
 
-    /**
-     * Compile the "limit" portions of the query.
-     *
-     * @param  Builder  $query
-     * @param  int  $limit
-     * @return string
-     */
-    protected function compileLimit(Builder $query, $limit)
+    protected function compileLimit(Builder $query, $limit): string
     {
         if ($this->offsetCompatibilityMode) {
             return "FETCH FIRST $limit ROWS ONLY";
@@ -54,13 +42,7 @@ class DB2QueryGrammar extends Grammar
         return parent::compileLimit($query, $limit);
     }
 
-    /**
-     * Compile a select query into SQL.
-     *
-     * @param  Builder  $query
-     * @return string
-     */
-    public function compileSelect(Builder $query)
+    public function compileSelect(Builder $query): string
     {
         if (! $this->offsetCompatibilityMode) {
             return parent::compileSelect($query);
@@ -82,14 +64,7 @@ class DB2QueryGrammar extends Grammar
         return $this->concatenate($components);
     }
 
-    /**
-     * Create a full ANSI offset clause for the query.
-     *
-     * @param  Builder  $query
-     * @param  array  $components
-     * @return string
-     */
-    protected function compileAnsiOffset(Builder $query, $components)
+    protected function compileAnsiOffset(Builder $query, array $components): string
     {
         // An ORDER BY clause is required to make this offset query work, so if one does
         // not exist we'll just create a dummy clause to trick the database and so it
@@ -108,7 +83,9 @@ class DB2QueryGrammar extends Grammar
         $columns = (! empty($components['columns']) ? $components['columns'].', ' : 'select');
 
         if ($columns == 'select *, ' && $query->from) {
-            $columns = 'select '.$this->tablePrefix.$query->from.'.*, ';
+            // Seit Laravel 12 gibt es keine "$this->tablePrefix"-Property mehr auf Grammar;
+            // der Prefix wird über die Connection gehalten.
+            $columns = 'select '.$this->getTablePrefix().$query->from.'.*, ';
         }
 
         $components['columns'] = $this->compileOver($orderings, $columns);
@@ -125,8 +102,6 @@ class DB2QueryGrammar extends Grammar
         // Next we need to calculate the constraints that should be placed on the query
         // to get the right offset and limit from our query but if there is no limit
         // set we will just handle the offset only since that is all that matters.
-        $start = $query->offset + 1;
-
         $constraint = $this->compileRowConstraint($query);
 
         $sql = $this->concatenate($components);
@@ -137,23 +112,12 @@ class DB2QueryGrammar extends Grammar
         return $this->compileTableExpression($sql, $constraint);
     }
 
-    /**
-     * Compile the over statement for a table expression.
-     *
-     * @param  string  $orderings
-     * @param    $columns
-     * @return string
-     */
-    protected function compileOver($orderings, $columns)
+    protected function compileOver(string $orderings, string $columns): string
     {
         return "{$columns} row_number() over ({$orderings}) as row_num";
     }
 
-    /**
-     * @param $query
-     * @return string
-     */
-    protected function compileRowConstraint($query)
+    protected function compileRowConstraint(Builder $query): string
     {
         $start = $query->offset + 1;
 
@@ -166,26 +130,12 @@ class DB2QueryGrammar extends Grammar
         return ">= {$start}";
     }
 
-    /**
-     * Compile a common table expression for a query.
-     *
-     * @param  string  $sql
-     * @param  string  $constraint
-     * @return string
-     */
-    protected function compileTableExpression($sql, $constraint)
+    protected function compileTableExpression(string $sql, string $constraint): string
     {
         return "select * from ({$sql}) as temp_table where row_num {$constraint}";
     }
 
-    /**
-     * Compile the "offset" portions of the query.
-     *
-     * @param  Builder  $query
-     * @param  int  $offset
-     * @return string
-     */
-    protected function compileOffset(Builder $query, $offset)
+    protected function compileOffset(Builder $query, $offset): string
     {
         if ($this->offsetCompatibilityMode) {
             return '';
@@ -194,13 +144,7 @@ class DB2QueryGrammar extends Grammar
         return parent::compileOffset($query, $offset);
     }
 
-    /**
-     * Compile an exists statement into SQL.
-     *
-     * @param  Builder  $query
-     * @return string
-     */
-    public function compileExists(Builder $query)
+    public function compileExists(Builder $query): string
     {
         $existsQuery = clone $query;
 
@@ -221,8 +165,6 @@ class DB2QueryGrammar extends Grammar
 
     /**
      * Set the format for database stored dates.
-     *
-     * @param $dateFormat
      */
     public function setDateFormat($dateFormat)
     {
@@ -231,8 +173,6 @@ class DB2QueryGrammar extends Grammar
 
     /**
      * Set offset compatibility mode to trigger FETCH FIRST X ROWS and ROW_NUM behavior for older versions of DB2
-     *
-     * @param $bool
      */
     public function setOffsetCompatibilityMode($bool)
     {

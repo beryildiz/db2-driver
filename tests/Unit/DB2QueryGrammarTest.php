@@ -3,12 +3,15 @@
 declare(strict_types=1);
 
 use Beryildiz\DB2Driver\DB2QueryGrammar;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\Query\Processors\Processor;
 
 // Hilfsfunktion: Erstellt eine testbare Subklasse mit öffentlichen Wrappern für geschützte Methoden
 function makeTestableGrammar(): DB2QueryGrammar
 {
-    return new class extends DB2QueryGrammar {
+    return new class(makeConnection()) extends DB2QueryGrammar
+    {
         public function compileLimitPublic(Builder $query, int $limit): string
         {
             return $this->compileLimit($query, $limit);
@@ -24,10 +27,10 @@ function makeTestableGrammar(): DB2QueryGrammar
 // Hilfsfunktion: Erstellt einen minimalen Builder-Stub ohne echte DB-Verbindung
 function makeQueryBuilder(): Builder
 {
-    $connection = Mockery::mock(\Illuminate\Database\ConnectionInterface::class);
-    $processor = Mockery::mock(\Illuminate\Database\Query\Processors\Processor::class);
+    $connection = Mockery::mock(ConnectionInterface::class);
+    $processor = Mockery::mock(Processor::class);
 
-    return new Builder($connection, new DB2QueryGrammar(), $processor);
+    return new Builder($connection, new DB2QueryGrammar(makeConnection()), $processor);
 }
 
 afterEach(function () {
@@ -64,7 +67,7 @@ it('compileOffset gibt leeren String im Compatibility-Mode zurück', function ()
 });
 
 it('compileSavepoint gibt korrekte DB2-Syntax zurück', function () {
-    $grammar = new DB2QueryGrammar();
+    $grammar = new DB2QueryGrammar(makeConnection());
 
     $sql = $grammar->compileSavepoint('sp_test');
 
@@ -72,14 +75,14 @@ it('compileSavepoint gibt korrekte DB2-Syntax zurück', function () {
 });
 
 it('getDateFormat gibt parent-Default zurück wenn kein Format gesetzt', function () {
-    $grammar = new DB2QueryGrammar();
+    $grammar = new DB2QueryGrammar(makeConnection());
 
     // Parent-Default ist 'Y-m-d H:i:s'
     expect($grammar->getDateFormat())->toBe('Y-m-d H:i:s');
 });
 
 it('getDateFormat gibt gesetztes Format zurück nach setDateFormat', function () {
-    $grammar = new DB2QueryGrammar();
+    $grammar = new DB2QueryGrammar(makeConnection());
     $grammar->setDateFormat('Y-m-d');
 
     expect($grammar->getDateFormat())->toBe('Y-m-d');
@@ -98,7 +101,7 @@ it('setOffsetCompatibilityMode(false) schaltet FETCH FIRST ab', function () {
 });
 
 it('compileExists erzeugt valides SQL mit 1 exists und FETCH FIRST 1 ROWS ONLY', function () {
-    $grammar = new DB2QueryGrammar();
+    $grammar = new DB2QueryGrammar(makeConnection());
     $builder = makeQueryBuilder();
     $builder->from('users');
 

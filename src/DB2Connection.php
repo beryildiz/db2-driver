@@ -7,6 +7,8 @@ namespace Beryildiz\DB2Driver;
 use Beryildiz\DB2Driver\Schema\DB2Builder;
 use Beryildiz\DB2Driver\Schema\DB2SchemaGrammar;
 use Illuminate\Database\Connection;
+use Illuminate\Database\Grammar;
+use Illuminate\Database\Query\Processors\Processor;
 use PDO;
 
 class DB2Connection extends Connection
@@ -75,7 +77,7 @@ class DB2Connection extends Connection
         return new DB2Builder($this);
     }
 
-    protected function getDefaultQueryGrammar(): \Illuminate\Database\Grammar
+    protected function getDefaultQueryGrammar(): Grammar
     {
         $defaultGrammar = new DB2QueryGrammar;
 
@@ -95,7 +97,7 @@ class DB2Connection extends Connection
     /**
      * Get the default grammar for specified Schema
      */
-    protected function getDefaultSchemaGrammar(): \Illuminate\Database\Grammar
+    protected function getDefaultSchemaGrammar(): Grammar
     {
         return new DB2SchemaGrammar;
     }
@@ -103,7 +105,7 @@ class DB2Connection extends Connection
     /**
      * Get the default post processor instance
      */
-    protected function getDefaultPostProcessor(): \Illuminate\Database\Query\Processors\Processor
+    protected function getDefaultPostProcessor(): Processor
     {
         return new DB2Processor;
     }

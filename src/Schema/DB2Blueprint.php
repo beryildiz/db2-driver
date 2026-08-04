@@ -35,7 +35,7 @@ class DB2Blueprint extends Blueprint
     /**
      * Get the raw SQL statements for the blueprint.
      *
-     * @param  \Illuminate\Database\Connection  $connection
+     * @param  Connection  $connection
      * @param  \Illuminate\Database\Schema\Grammars\Grammar  $grammar
      * @return array
      */
@@ -49,7 +49,7 @@ class DB2Blueprint extends Blueprint
     /**
      * Add the commands that are necessary to DROP and Rename statements on IBMi.
      *
-     * @param  \Illuminate\Database\Connection  $connection
+     * @param  Connection  $connection
      * @return void
      */
     protected function addReplyListEntryCommands(Connection $connection)
@@ -74,7 +74,7 @@ class DB2Blueprint extends Blueprint
      * Specify a label for the table.
      *
      * @param  string  $label
-     * @return \Illuminate\Support\Fluent
+     * @return Fluent
      */
     public function label($label)
     {
@@ -87,7 +87,7 @@ class DB2Blueprint extends Blueprint
      * @param  string  $type
      * @param  string|array  $columns
      * @param  string  $index
-     * @return \Illuminate\Support\Fluent
+     * @return Fluent
      */
     protected function indexCommand($type, $columns, $index, $algorithm = null)
     {
@@ -118,7 +118,7 @@ class DB2Blueprint extends Blueprint
      * Create a new boolean column on the table.
      *
      * @param  string  $column
-     * @return \Illuminate\Support\Fluent
+     * @return Fluent
      */
     public function boolean($column)
     {
@@ -139,7 +139,7 @@ class DB2Blueprint extends Blueprint
      * @param  string  $column
      * @param  int  $total
      * @param  int  $places
-     * @return \Illuminate\Support\Fluent
+     * @return Fluent
      */
     public function numeric($column, $total = 8, $places = 2)
     {

@@ -11,7 +11,11 @@ class DB2DriverServiceProvider extends PackageServiceProvider
 {
     public function configurePackage(Package $package): void
     {
-        $package->name('db2-driver')
-            ->publishesServiceProvider('DB2ServiceProvider');
+        // Kein publishesServiceProvider(): spatie würde dafür
+        // resources/stubs/DB2ServiceProvider.php.stub erwarten (siehe
+        // ProcessServiceProviders::bootPackageServiceProviders()). Der Provider
+        // wird ohnehin über composer.json "extra.laravel.providers" auto-discovered,
+        // ein Publishing ist daher weder nötig noch sinnvoll.
+        $package->name('db2-driver');
     }
 }

@@ -15,7 +15,10 @@ src/
   DB2QueryGrammar.php        — SQL-Grammar für DB2
   DB2ServiceProvider.php
   Schema/                    — Schema Builder & Grammar
-tests/                       — Pest-Tests (Namespace BWICompanies\DB2Driver\Tests)
+tests/
+  Unit/                      — Grammar/Connector/Processor Unit-Tests (ohne DB)
+  TestCase.php               — Orchestra Testbench Basis
+  Pest.php                   — globales uses(TestCase::class)
 ```
 
 ## Weiterführende Memories

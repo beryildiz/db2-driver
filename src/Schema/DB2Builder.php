@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Beryildiz\DB2Driver\Schema;
 
+use Beryildiz\DB2Driver\DB2Connection;
+use Beryildiz\DB2Driver\DB2Processor;
 use Closure;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
@@ -15,18 +17,9 @@ class DB2Builder extends Builder
      */
     public function hasTable($table): bool
     {
-        $sql = $this->grammar->compileTableExists();
-        $schemaTable = explode('.', $table);
+        [$schema, $table] = $this->parseQualifiedTable($table);
 
-        if (count($schemaTable) > 1) {
-            $schema = $schemaTable[0];
-            $table = $this->connection->getTablePrefix().$schemaTable[1];
-        } else {
-            $schema = $this->connection->getDefaultSchema();
-            $table = $this->connection->getTablePrefix().$table;
-        }
-
-        return count($this->connection->select($sql, [
+        return count($this->db2Connection()->select($this->db2Grammar()->compileTableExists(), [
             $schema,
             $table,
         ])) > 0;
@@ -37,54 +30,135 @@ class DB2Builder extends Builder
      */
     public function getColumnListing($table): array
     {
-        $sql = $this->grammar->compileColumnExists();
-        $database = $this->connection->getDatabaseName();
-        $table = $this->connection->getTablePrefix().$table;
+        [$schema, $table] = $this->parseQualifiedTable($table);
 
-        $tableExploded = explode('.', $table);
-
-        if (count($tableExploded) > 1) {
-            $database = $tableExploded[0];
-            $table = $tableExploded[1];
-        }
-
-        $results = $this->connection->select($sql, [
-            $database,
+        $results = $this->db2Connection()->select($this->db2Grammar()->compileColumnExists(), [
+            $schema,
             $table,
         ]);
 
-        $res = $this->connection->getPostProcessor()
-                                ->processColumnListing($results);
+        $res = $this->db2Processor()->processColumnListing($results);
 
         return array_values(array_map(function ($r) {
-            return $r->column_name;
+            // IBM i liefert Spaltennamen je nach PDO::ATTR_CASE in Groß- oder
+            // Kleinschreibung — daher case-insensitiver Zugriff.
+            $lower = array_change_key_case((array) $r, CASE_LOWER);
+
+            return trim((string) $lower['column_name']);
         }, $res));
     }
 
     /**
+     * Zerlegt eine (optional schema-qualifizierte) Tabellenreferenz in Schema und
+     * gepräfixten Tabellennamen.
+     *
+     * Wichtig: Der Table-Prefix wird erst NACH der Schema-Trennung angewendet —
+     * andernfalls landete der Prefix vor dem Schemanamen ("pfx_MYLIB.tab").
+     * Ohne explizites Schema greift das Connection-Default-Schema.
+     *
+     * @return array{string, string}
+     */
+    private function parseQualifiedTable(string $table): array
+    {
+        // parseSchemaAndTable() der Basisklasse liefert zusätzlich den Guard gegen
+        // dreiteilige Referenzen ("db.schema.table" -> InvalidArgumentException).
+        [$schema, $table] = $this->parseSchemaAndTable($table);
+
+        return [
+            $schema ?? $this->db2Connection()->getDefaultSchema(),
+            $this->db2Connection()->getTablePrefix().$table,
+        ];
+    }
+
+    /**
      * Execute the blueprint to build / modify the table.
+     *
+     * Seit Laravel 12 ist Blueprint::build() parameterlos — Connection/Grammar sind bereits
+     * im Blueprint-Konstruktor gesetzt.
      */
     protected function build(Blueprint $blueprint)
     {
         $schemaTable = explode('.', $blueprint->getTable());
+        $schemaSwitched = count($schemaTable) > 1;
 
-        if (count($schemaTable) > 1) {
-            $this->connection->setCurrentSchema($schemaTable[0]);
+        if ($schemaSwitched) {
+            $this->db2Connection()->setCurrentSchema($schemaTable[0]);
         }
 
-        $blueprint->build($this->connection, $this->grammar);
-        $this->connection->resetCurrentSchema();
+        try {
+            $blueprint->build();
+        } finally {
+            // Ohne finally bliebe das Connection-Schema nach einer fehlgeschlagenen
+            // Migration dauerhaft verstellt und würde alle Folgequeries verfälschen.
+            if ($schemaSwitched) {
+                $this->db2Connection()->resetCurrentSchema();
+            }
+        }
     }
 
     /**
      * Create a new command set with a Closure.
+     *
+     * Seit Laravel 12 erhält der Resolver die Connection als ersten Parameter
+     * (siehe Illuminate\Database\Schema\Builder::createBlueprint()).
+     *
+     * @return DB2Blueprint
      */
-    protected function createBlueprint($table, Closure $callback = null)
+    protected function createBlueprint($table, ?Closure $callback = null)
     {
-        if (isset($this->resolver)) {
-            return call_user_func($this->resolver, $table, $callback);
+        $connection = $this->connection;
+
+        if ($this->resolver !== null) {
+            /** @var DB2Blueprint */
+            return call_user_func($this->resolver, $connection, $table, $callback);
         }
 
-        return new DB2Blueprint($table, $callback);
+        return new DB2Blueprint($connection, $table, $callback);
+    }
+
+    /**
+     * Liefert die Connection als DB2Connection.
+     * DB2Builder funktioniert nur mit einer DB2Connection — wird diese Invariante verletzt,
+     * liegt ein Konfigurationsfehler vor.
+     */
+    private function db2Connection(): DB2Connection
+    {
+        if (! $this->connection instanceof DB2Connection) {
+            throw new \LogicException(
+                'DB2Builder erfordert eine DB2Connection, erhalten: '.get_class($this->connection)
+            );
+        }
+
+        return $this->connection;
+    }
+
+    /**
+     * Liefert die Schema-Grammar als DB2SchemaGrammar.
+     */
+    private function db2Grammar(): DB2SchemaGrammar
+    {
+        if (! $this->grammar instanceof DB2SchemaGrammar) {
+            throw new \LogicException(
+                'DB2Builder erfordert eine DB2SchemaGrammar, erhalten: '.get_class($this->grammar)
+            );
+        }
+
+        return $this->grammar;
+    }
+
+    /**
+     * Liefert den Processor als DB2Processor.
+     */
+    private function db2Processor(): DB2Processor
+    {
+        $processor = $this->connection->getPostProcessor();
+
+        if (! $processor instanceof DB2Processor) {
+            throw new \LogicException(
+                'DB2Builder erfordert einen DB2Processor, erhalten: '.get_class($processor)
+            );
+        }
+
+        return $processor;
     }
 }

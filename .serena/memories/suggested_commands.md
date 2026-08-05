@@ -11,7 +11,7 @@ vendor/bin/pest --coverage
 ```
 vendor/bin/phpstan analyse
 ```
-Hinweis: `phpstan.neon` ist gitignored — lokal anlegen (z. B. von `phpstan.neon.dist` kopieren, falls vorhanden).
+Hinweis: `phpstan.neon` und `phpstan-baseline.neon` sind **versioniert** (nicht gitignored). Die Baseline darf nur schrumpfen, nie wachsen.
 
 ## Code-Formatierung
 ```

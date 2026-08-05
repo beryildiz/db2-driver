@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Beryildiz\DB2Driver\Schema;
 
-use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Grammars\Grammar;
 use Illuminate\Support\Fluent;
+
+use function Illuminate\Support\enum_value;
 
 class DB2SchemaGrammar extends Grammar
 {
@@ -40,13 +41,8 @@ class DB2SchemaGrammar extends Grammar
         'bigInteger',
     ];
 
-    /**
-     * Wrap a single string in keyword identifiers.
-     *
-     * @param  string  $value
-     * @return string
-     */
-    protected function wrapValue($value)
+    /** @param string $value */
+    protected function wrapValue($value): string
     {
         if ($value === '*') {
             return $value;
@@ -58,9 +54,15 @@ class DB2SchemaGrammar extends Grammar
     /**
      * Compile the query to determine the list of tables.
      *
+     * Seit Laravel 12 deklariert Illuminate\Database\Schema\Grammars\Grammar diese Methode
+     * bereits mit der Signatur compileTableExists($schema, $table) (2 Pflichtparameter) —
+     * ohne kompatible Signatur wäre das ein Fatal Error ("Declaration must be compatible").
+     * $schema/$table werden hier bewusst nicht in die SQL eingesetzt (Bindings statt Literal),
+     * DB2Builder::hasTable() übergibt sie weiterhin separat als Parameter-Bindings.
+     *
      * @return string
      */
-    public function compileTableExists()
+    public function compileTableExists($schema = null, $table = null)
     {
         return 'select * from information_schema.tables where table_schema = upper(?) and table_name = upper(?)';
     }
@@ -78,17 +80,15 @@ class DB2SchemaGrammar extends Grammar
     /**
      * Compile a create table command.
      *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @param  Connection  $connection
-     * @return string
+     * Seit Laravel 12 reicht Blueprint::toSql() die Connection nicht mehr an compile*()-Methoden
+     * durch — die Grammar hält bereits ihre eigene Connection (siehe Konstruktor der Elternklasse).
      */
-    public function compileCreate(Blueprint $blueprint, Fluent $command, Connection $connection)
+    public function compileCreate(Blueprint $blueprint, Fluent $command): string
     {
         $columns = implode(', ', $this->getColumns($blueprint));
         $sql = 'create table '.$this->wrapTable($blueprint);
 
-        if (isset($blueprint->systemName)) {
+        if ($blueprint instanceof DB2Blueprint && $blueprint->systemName !== '') {
             $sql .= ' for system name '.$blueprint->systemName;
         }
 
@@ -99,49 +99,32 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Compile a label command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @param  Connection  $connection
-     * @return string
      */
-    public function compileLabel(Blueprint $blueprint, Fluent $command, Connection $connection)
+    public function compileLabel(Blueprint $blueprint, Fluent $command): string
     {
         return 'label on table '.$this->wrapTable($blueprint).' is \''.$command->label.'\'';
     }
 
     /**
      * Compile the blueprint's column definitions.
-     *
-     * @param  Blueprint  $blueprint
-     * @return array
      */
-    protected function getColumns(Blueprint $blueprint)
+    protected function getColumns(Blueprint $blueprint): array
     {
         $columns = [];
 
-        foreach ($blueprint->getColumns() as $column) {
-            // Each of the column types have their own compiler functions which are tasked
-            // with turning the column definition into its SQL format for this platform
-            // used by the connection. The column's modifiers are compiled and added.
-            $sql = $this->addPreModifiers($this->wrap($column), $blueprint, $column);
-            $sql .= ' '.$this->getType($column);
-
-            $columns[] = $this->addModifiers($sql, $blueprint, $column);
+        // getAddedColumns() statt getColumns(): mit ->change() markierte Spalten
+        // werden über compileChange() abgehandelt und dürfen hier nicht auftauchen.
+        foreach ($blueprint->getAddedColumns() as $column) {
+            $columns[] = $this->getColumn($blueprint, $column);
         }
 
         return $columns;
     }
 
     /**
-     * Add the column modifiers to the definition.
-     *
-     * @param  string  $sql
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string
+     * Add the pre-column modifiers to the definition.
      */
-    protected function addPreModifiers($sql, Blueprint $blueprint, Fluent $column)
+    protected function addPreModifiers(string $sql, Blueprint $blueprint, Fluent $column): string
     {
         foreach ($this->preModifiers as $preModifier) {
             if (method_exists($this, $method = "modify{$preModifier}")) {
@@ -153,33 +136,46 @@ class DB2SchemaGrammar extends Grammar
     }
 
     /**
-     * Compile a create table command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
+     * Compile the definition of a single column (type + pre-/post-modifiers).
      */
-    public function compileAdd(Blueprint $blueprint, Fluent $command)
+    protected function getColumn(Blueprint $blueprint, $column): string
+    {
+        $sql = $this->addPreModifiers($this->wrap($column), $blueprint, $column);
+        $sql .= ' '.$this->getType($column);
+
+        return $this->addModifiers($sql, $blueprint, $column);
+    }
+
+    /**
+     * Compile an add column command.
+     *
+     * Laravel erzeugt seit v11/12 pro hinzugefügter Spalte einen eigenen "add"-Command
+     * mit $command->column (siehe Blueprint::addImpliedCommands()). Würde hier über
+     * alle Blueprint-Spalten iteriert, entstünden N×N Statements ("column already
+     * exists"). Daher wird genau die Spalte dieses Commands kompiliert.
+     *
+     * @return list<string>
+     */
+    public function compileAdd(Blueprint $blueprint, Fluent $command): array
     {
         $table = $this->wrapTable($blueprint);
-        $columns = $this->prefixArray('add', $this->getColumns($blueprint));
-        $statements = [];
 
-        foreach ($columns as $column) {
-            $statements[] = 'alter table '.$table.' '.$column;
+        if (isset($command->column)) {
+            return ['alter table '.$table.' add '.$this->getColumn($blueprint, $command->column)];
         }
 
-        return $statements;
+        // Fallback: ein einzelner "add"-Command für alle Spalten (z. B. wenn ein
+        // Blueprint-Command manuell ohne 'column' erzeugt wurde).
+        return array_map(
+            fn (string $column): string => 'alter table '.$table.' '.$column,
+            $this->prefixArray('add', $this->getColumns($blueprint))
+        );
     }
 
     /**
      * Compile a primary key command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
-    public function compilePrimary(Blueprint $blueprint, Fluent $command)
+    public function compilePrimary(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
         $columns = $this->columnize($command->columns);
@@ -196,12 +192,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Compile a foreign key command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
-    public function compileForeign(Blueprint $blueprint, Fluent $command)
+    public function compileForeign(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
         $on = $this->wrapTable($command->on);
@@ -238,12 +230,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Compile a unique key command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
-    public function compileUnique(Blueprint $blueprint, Fluent $command)
+    public function compileUnique(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
         $columns = $this->columnize($command->columns);
@@ -260,12 +248,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Compile a plain index key command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
-    public function compileIndex(Blueprint $blueprint, Fluent $command)
+    public function compileIndex(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
         $columns = $this->columnize($command->columns);
@@ -290,29 +274,28 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Compile a drop table command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
-    public function compileDrop(Blueprint $blueprint, Fluent $command)
-    {
-        return 'drop table '.$this->wrapTable($blueprint);
-    }
-
-    public function compileDropIfExists(Blueprint $blueprint, Fluent $command): string
+    public function compileDrop(Blueprint $blueprint, Fluent $command): string
     {
         return 'drop table '.$this->wrapTable($blueprint);
     }
 
     /**
-     * Compile a drop column command.
+     * Compile a drop table (if exists) command.
      *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
+     * "DROP TABLE ... IF EXISTS" gibt es auf IBM i erst ab 7.2. DB2Builder::dropIfExists()
+     * prüft daher zusätzlich vorab per hasTable(), damit auch ältere Releases nicht
+     * mit SQL0204 abbrechen.
      */
-    public function compileDropColumn(Blueprint $blueprint, Fluent $command)
+    public function compileDropIfExists(Blueprint $blueprint, Fluent $command): string
+    {
+        return 'drop table if exists '.$this->wrapTable($blueprint);
+    }
+
+    /**
+     * Compile a drop column command.
+     */
+    public function compileDropColumn(Blueprint $blueprint, Fluent $command): string
     {
         $columns = $this->prefixArray('drop', $this->wrapArray($command->columns));
         $table = $this->wrapTable($blueprint);
@@ -321,13 +304,76 @@ class DB2SchemaGrammar extends Grammar
     }
 
     /**
-     * Compile a drop primary key command.
+     * Compile a rename column command.
      *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
+     * Seit dem Wegfall von Doctrine DBAL (Laravel 11+) muss jede Schema-Grammar diese
+     * Methode selbst implementieren, sonst bleibt `$table->renameColumn()` wirkungslos
+     * (Illuminate\Database\Schema\Grammars\Grammar::compileRenameColumn() liefert eine
+     * generische, hier nicht passende ANSI-Variante). IBM i/DB2-Syntax:
+     * ALTER TABLE "TABLE" RENAME COLUMN "OLD" TO "NEW".
      */
-    public function compileDropPrimary(Blueprint $blueprint, Fluent $command)
+    public function compileRenameColumn(Blueprint $blueprint, Fluent $command): string
+    {
+        return sprintf(
+            'alter table %s rename column %s to %s',
+            $this->wrapTable($blueprint),
+            $this->wrap($command->from),
+            $this->wrap($command->to)
+        );
+    }
+
+    /**
+     * Compile a change column command into a series of SQL statements.
+     *
+     * Seit dem Wegfall von Doctrine DBAL (Laravel 11+) muss jede Schema-Grammar diese
+     * Methode selbst implementieren, sonst bleibt `$table->string('x')->change()`
+     * wirkungslos (die Basisklasse wirft standardmäßig eine RuntimeException).
+     *
+     * IBM i/DB2 kennt kein einzelnes "ALTER COLUMN ... <typ> <modifier>" wie MySQL,
+     * sondern mehrere eigenständige Klauseln:
+     * ALTER TABLE "T" ALTER COLUMN "C" SET DATA TYPE <typ>
+     * ALTER TABLE "T" ALTER COLUMN "C" SET NOT NULL | DROP NOT NULL
+     * ALTER TABLE "T" ALTER COLUMN "C" SET DEFAULT <wert>
+     *
+     * Da DB2SchemaGrammar (noch) keine Introspection des alten Spaltenzustands anbietet
+     * (siehe V5-Befund), wird — wie bei anderen Treibern auch — die neue Spaltendefinition
+     * vollständig ausgeführt statt gegen den alten Zustand zu diffen. Für Kombinationen,
+     * die eine reine ALTER-COLUMN-Klausel nicht abdecken kann (auto-increment/generated
+     * setzen, Umbenennen im selben Befehl), wird bewusst eine sprechende Exception
+     * geworfen statt stillschweigend falsches SQL zu erzeugen.
+     *
+     * @return list<string>
+     */
+    public function compileChange(Blueprint $blueprint, Fluent $command): array
+    {
+        $column = $command->column;
+
+        if ($column->autoIncrement || ! is_null($column->generated) || ! is_null($column->renameTo)) {
+            throw new \RuntimeException(
+                'DB2SchemaGrammar: Ändern von autoIncrement/generated-Spalten oder Umbenennen über change() wird nicht unterstützt. '.
+                'Für strukturelle Änderungen renameColumn() bzw. eine neue Migration nutzen.'
+            );
+        }
+
+        $table = $this->wrapTable($blueprint);
+        $wrappedColumn = $this->wrap($column);
+
+        $statements = [
+            "alter table {$table} alter column {$wrappedColumn} set data type ".$this->getType($column),
+            sprintf('alter table %s alter column %s %s not null', $table, $wrappedColumn, $column->nullable ? 'drop' : 'set'),
+        ];
+
+        if (! is_null($column->default)) {
+            $statements[] = "alter table {$table} alter column {$wrappedColumn} set default ".$this->getDefaultValue($column->default);
+        }
+
+        return $statements;
+    }
+
+    /**
+     * Compile a drop primary key command.
+     */
+    public function compileDropPrimary(Blueprint $blueprint, Fluent $command): string
     {
         return 'alter table '.$this->wrapTable($blueprint).' drop primary key';
     }
@@ -349,22 +395,21 @@ class DB2SchemaGrammar extends Grammar
     /**
      * Compile a drop index command.
      *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
+     * DB2 for i kennt kein "ALTER TABLE … DROP INDEX" — korrekte Syntax ist "DROP INDEX <name>".
+     * Der Schema-Prefix wird aus dem Indexnamen entfernt (wie in compileDropUnique/compilePrimary).
      */
-    public function compileDropIndex(Blueprint $blueprint, Fluent $command)
+    public function compileDropIndex(Blueprint $blueprint, Fluent $command): string
     {
         $table = $this->wrapTable($blueprint);
 
-        // Schema name is not needed in the constraint name
+        // Schema name is not needed in the index name
         $schemaTable = explode('.', $table);
 
         if (count($schemaTable) > 1) {
             $command->index = str_replace($schemaTable[0].'_', '', $command->index);
         }
 
-        return "alter table {$table} drop index {$command->index}";
+        return "drop index {$command->index}";
     }
 
     public function compileDropForeign(Blueprint $blueprint, Fluent $command): string
@@ -383,12 +428,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Compile a rename table command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
-    public function compileRename(Blueprint $blueprint, Fluent $command)
+    public function compileRename(Blueprint $blueprint, Fluent $command): string
     {
         $from = $this->wrapTable($blueprint);
 
@@ -397,44 +438,32 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a char type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeChar(Fluent $column)
+    protected function typeChar(Fluent $column): string
     {
         return "char({$column->length})";
     }
 
     /**
      * Create the column definition for a string type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeString(Fluent $column)
+    protected function typeString(Fluent $column): string
     {
         return "varchar({$column->length})";
     }
 
     /**
      * Create the column definition for a text type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeText(Fluent $column)
+    protected function typeText(Fluent $column): string
     {
         return 'clob(64K)';
     }
 
     /**
      * Create the column definition for a medium text type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeMediumText(Fluent $column)
+    protected function typeMediumText(Fluent $column): string
     {
         $colLength = ($column->length ? $column->length : 16000);
 
@@ -443,11 +472,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a long text type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeLongText(Fluent $column)
+    protected function typeLongText(Fluent $column): string
     {
         $colLength = ($column->length ? $column->length : 16000);
 
@@ -456,44 +482,32 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a big integer type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeBigInteger(Fluent $column)
+    protected function typeBigInteger(Fluent $column): string
     {
         return 'bigint';
     }
 
     /**
      * Create the column definition for a integer type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeInteger(Fluent $column)
+    protected function typeInteger(Fluent $column): string
     {
         return 'int';
     }
 
     /**
      * Create the column definition for a small integer type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeSmallInteger(Fluent $column)
+    protected function typeSmallInteger(Fluent $column): string
     {
         return 'smallint';
     }
 
     /**
      * Create the column definition for a numeric type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeNumeric(Fluent $column)
+    protected function typeNumeric(Fluent $column): string
     {
         return "numeric({$column->total}, {$column->places})";
     }
@@ -501,69 +515,100 @@ class DB2SchemaGrammar extends Grammar
     /**
      * Create the column definition for a float type.
      *
-     * @param  Fluent  $column
-     * @return string
+     * Seit Laravel 11 hat float() kein $total/$places mehr, sondern nur noch
+     * $precision (Default 53) — siehe Blueprint::float($column, $precision = 53).
+     * DB2 for i bildet das über FLOAT(n) ab: n <= 24 => single, sonst double precision.
      */
-    protected function typeFloat(Fluent $column)
+    protected function typeFloat(Fluent $column): string
     {
-        return "decimal({$column->total}, {$column->places})";
+        if ($column->precision) {
+            return "float({$column->precision})";
+        }
+
+        return 'float';
     }
 
     /**
      * Create the column definition for a double type.
      *
-     * @param  Fluent  $column
-     * @return string
+     * DB2 for i kennt kein DOUBLE(p, s) — DOUBLE ist immer 8-Byte Gleitkomma.
      */
-    protected function typeDouble(Fluent $column)
+    protected function typeDouble(Fluent $column): string
     {
-        if ($column->total && $column->places) {
-            return "double({$column->total}, {$column->places})";
-        }
-
         return 'double';
     }
 
     /**
      * Create the column definition for a decimal type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeDecimal(Fluent $column)
+    protected function typeDecimal(Fluent $column): string
     {
         return "decimal({$column->total}, {$column->places})";
     }
 
     /**
-     * Create the column definition for a boolean type.
+     * Liefert den unqualifizierten Tabellennamen (ohne Schema) für Constraint-Namen.
      *
-     * @param  Fluent  $column
-     * @return string
+     * Constraint-Namen sind in DB2 for i schemaweit eindeutig und dürfen selbst
+     * keinen Schema-Prefix tragen.
      */
-    protected function typeBoolean(Fluent $column)
+    protected function constraintPrefix(Blueprint|Fluent $source): string
     {
-        $definition = 'smallint constraint %s_%s_%s check(%s in(0, 1)) %s';
+        $table = $source instanceof Blueprint ? $source->getTable() : (string) $source->prefix;
+        $segments = explode('.', $table);
 
-        return sprintf($definition, $column->type, $column->prefix, $column->name, $column->name, is_null($column->default) ? ' default 0' : '');
+        return end($segments);
     }
 
+    /**
+     * Create the column definition for a boolean type.
+     */
+    protected function typeBoolean(Fluent $column): string
+    {
+        return sprintf(
+            'smallint constraint %s_%s_%s check(%s in(0, 1))',
+            $column->type,
+            $this->constraintPrefix($column),
+            $column->name,
+            $this->wrap($column->name)
+        );
+    }
+
+    /**
+     * Create the column definition for an enum type.
+     *
+     * DB2 for i kennt keinen ENUM-Typ — abgebildet als VARCHAR mit CHECK-Constraint.
+     * Der Constraint-Name wird mit dem Tabellennamen qualifiziert, da Constraint-Namen
+     * schemaweit eindeutig sein müssen. Werte werden SQL-escaped.
+     */
     protected function typeEnum(Fluent $column): string
     {
-        $allowed = array_map(fn (string $v): string => "'{$v}'", $column->allowed);
+        $allowed = implode(', ', array_map(
+            fn ($value): string => "'".str_replace("'", "''", (string) $value)."'",
+            $column->allowed
+        ));
 
-        return 'varchar(255) constraint '.$column->name.'_enum check('.$column->name.' in ('.implode(', ', $allowed).'))';
+        $length = $column->length ?: 255;
+
+        return sprintf(
+            'varchar(%s) constraint %s_%s_enum check(%s in (%s))',
+            $length,
+            $this->constraintPrefix($column),
+            $column->name,
+            $this->wrap($column->name),
+            $allowed
+        );
     }
 
     /**
      * Create the column definition for a date type.
      *
-     * @param  Fluent  $column
-     * @return string
+     * Das implizite DEFAULT wird nur gesetzt, wenn kein explizites Default angegeben ist —
+     * sonst würde modifyDefault() ein zweites DEFAULT anhängen und ungültiges SQL erzeugen.
      */
-    protected function typeDate(Fluent $column)
+    protected function typeDate(Fluent $column): string
     {
-        if (! $column->nullable) {
+        if (! $column->nullable && is_null($column->default)) {
             return 'date default current_date';
         }
 
@@ -572,11 +617,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a date-time type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeDateTime(Fluent $column)
+    protected function typeDateTime(Fluent $column): string
     {
         return $this->typeTimestamp($column);
     }
@@ -584,12 +626,12 @@ class DB2SchemaGrammar extends Grammar
     /**
      * Create the column definition for a time type.
      *
-     * @param  Fluent  $column
-     * @return string
+     * Das implizite DEFAULT wird nur gesetzt, wenn kein explizites Default angegeben ist —
+     * sonst würde modifyDefault() ein zweites DEFAULT anhängen und ungültiges SQL erzeugen.
      */
-    protected function typeTime(Fluent $column)
+    protected function typeTime(Fluent $column): string
     {
-        if (! $column->nullable) {
+        if (! $column->nullable && is_null($column->default)) {
             return 'time default current_time';
         }
 
@@ -599,12 +641,12 @@ class DB2SchemaGrammar extends Grammar
     /**
      * Create the column definition for a timestamp type.
      *
-     * @param  Fluent  $column
-     * @return string
+     * Das implizite DEFAULT wird nur gesetzt, wenn kein explizites Default angegeben ist —
+     * sonst würde modifyDefault() ein zweites DEFAULT anhängen und ungültiges SQL erzeugen.
      */
-    protected function typeTimestamp(Fluent $column)
+    protected function typeTimestamp(Fluent $column): string
     {
-        if (! $column->nullable) {
+        if (! $column->nullable && is_null($column->default)) {
             return 'timestamp default current_timestamp';
         }
 
@@ -613,46 +655,32 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a binary type.
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeBinary(Fluent $column)
+    protected function typeBinary(Fluent $column): string
     {
         return 'blob';
     }
 
     /**
      * Create the column definition for a UUID type
-     *
-     * @param  Fluent  $column
-     * @return string
      */
-    protected function typeUuid(Fluent $column)
+    protected function typeUuid(Fluent $column): string
     {
         return 'char(36)';
     }
 
     /**
      * Get the SQL for a nullable column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyNullable(Blueprint $blueprint, Fluent $column)
+    protected function modifyNullable(Blueprint $blueprint, Fluent $column): ?string
     {
         return $column->nullable ? '' : ' not null';
     }
 
     /**
      * Get the SQL for a default column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyDefault(Blueprint $blueprint, Fluent $column)
+    protected function modifyDefault(Blueprint $blueprint, Fluent $column): ?string
     {
         if (! is_null($column->default)) {
             return ' default '.$this->getDefaultValue($column->default);
@@ -663,15 +691,14 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Get the SQL for an auto-increment column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyIncrement(Blueprint $blueprint, Fluent $column)
+    protected function modifyIncrement(Blueprint $blueprint, Fluent $column): ?string
     {
         if (in_array($column->type, $this->serials) && $column->autoIncrement) {
-            return ' generated by default as identity constraint '.$blueprint->getTable().'_'.$column->name.'_primary primary key';
+            // constraintPrefix() statt getTable(): bei schema-qualifizierten Tabellen
+            // ("MYLIB.users") darf der Constraint-Name selbst keinen Punkt enthalten.
+            return ' generated by default as identity constraint '
+                .$this->constraintPrefix($blueprint).'_'.$column->name.'_primary primary key';
         }
 
         return null;
@@ -679,12 +706,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Get the SQL for an "before" column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyBefore(Blueprint $blueprint, Fluent $column)
+    protected function modifyBefore(Blueprint $blueprint, Fluent $column): ?string
     {
         if (! is_null($column->before)) {
             return ' before '.$this->wrap($column->before);
@@ -695,12 +718,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Get the SQL for an "for column" column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyForColumn(Blueprint $blueprint, Fluent $column)
+    protected function modifyForColumn(Blueprint $blueprint, Fluent $column): ?string
     {
         if (! is_null($column->forColumn)) {
             return ' for column '.$this->wrap($column->forColumn);
@@ -711,12 +730,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Get the SQL for a "generated" column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyGenerated(Blueprint $blueprint, Fluent $column)
+    protected function modifyGenerated(Blueprint $blueprint, Fluent $column): ?string
     {
         if (! is_null($column->generated)) {
             return ' generated '.($column->generated === true ? 'always' : $this->wrap($column->generated));
@@ -727,12 +742,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Get the SQL for a "startWith" column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyStartWith(Blueprint $blueprint, Fluent $column)
+    protected function modifyStartWith(Blueprint $blueprint, Fluent $column): ?string
     {
         if (! is_null($column->startWith)) {
             return ' (start with '.$column->startWith.')';
@@ -743,12 +754,8 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Get the SQL for an "implicitly hidden" column modifier.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $column
-     * @return string|null
      */
-    protected function modifyImplicitlyHidden(Blueprint $blueprint, Fluent $column)
+    protected function modifyImplicitlyHidden(Blueprint $blueprint, Fluent $column): ?string
     {
         if (! is_null($column->implicitlyHidden)) {
             return ' implicitly hidden';
@@ -760,40 +767,62 @@ class DB2SchemaGrammar extends Grammar
     /**
      * Format a value so that it can be used in "default" clauses.
      *
-     * @param  mixed  $value
-     * @return string
+     * Booleans werden zu 0/1 normalisiert (DB2 for i bildet boolean als SMALLINT ab;
+     * ein rohes PHP-false würde zu einem leeren DEFAULT interpolieren). String-Werte
+     * werden gequotet und enthaltene Apostrophe verdoppelt — sonst bricht das
+     * SQL-Literal auf (Syntaxfehler bzw. Injection-Vektor).
      */
-    protected function getDefaultValue($value)
+    protected function getDefaultValue(mixed $value): string|int|float|Expression
     {
-        if ($value instanceof Expression || is_bool($value) || is_numeric($value)) {
+        if ($value instanceof Expression) {
             return $value;
         }
 
-        return "'".strval($value)."'";
+        if (is_bool($value)) {
+            return (int) $value;
+        }
+
+        if ($value instanceof \UnitEnum) {
+            $value = enum_value($value);
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return $value;
+        }
+
+        return "'".str_replace("'", "''", (string) $value)."'";
     }
 
     /**
      * Compile a executeCommand command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
     private function compileExecuteCommand(Blueprint $blueprint, Fluent $command): string
     {
-        return "CALL QSYS2.QCMDEXC('".$command->command."')";
+        // Zentrale Escaping-Stelle: einfache Anführungszeichen im Kommando verdoppeln,
+        // damit das SQL-String-Literal korrekt terminiert wird. Aufrufer dürfen NICHT
+        // selbst vor-escapen (sonst doppeltes Escaping, siehe compileAddReplyListEntry).
+        $escaped = str_replace("'", "''", $command->command);
+
+        return "CALL QSYS2.QCMDEXC('{$escaped}')";
     }
 
     /**
      * Compile an addReplyListEntry command.
      *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @param  Connection  $connection
-     * @return string
+     * Seit Laravel 12 wird die Connection nicht mehr durchgereicht — die Grammar hat über
+     * $this->connection (Illuminate\Database\Grammar) bereits Zugriff auf ihre Connection.
+     *
+     * Erfordert einen DB2Blueprint, da nur dieser setReplyListSequenceNumber() kennt.
+     * Ein fremder Blueprint hier ist ein Konfigurationsfehler (DB2Builder erzeugt immer DB2Blueprint).
      */
-    public function compileAddReplyListEntry(Blueprint $blueprint, Fluent $command, Connection $connection)
+    public function compileAddReplyListEntry(Blueprint $blueprint, Fluent $command): string
     {
+        if (! $blueprint instanceof DB2Blueprint) {
+            throw new \LogicException(
+                'compileAddReplyListEntry erfordert einen DB2Blueprint, erhalten: '.get_class($blueprint)
+            );
+        }
+
         $sequenceNumberQuery = <<<'EOT'
             with reply_list_info(sequence_number) as (
                 values(1)
@@ -811,8 +840,10 @@ class DB2SchemaGrammar extends Grammar
             )
 EOT;
 
-        $blueprint->setReplyListSequenceNumber($sequenceNumber = $connection->selectOne($sequenceNumberQuery)->sequence_number);
-        $command->command = "ADDRPYLE SEQNBR($sequenceNumber) MSGID(CPA32B2) RPY(''I'')";
+        $blueprint->setReplyListSequenceNumber($sequenceNumber = $this->connection->selectOne($sequenceNumberQuery)->sequence_number);
+        // Nicht selbst vor-escapen ("RPY('I')" statt "RPY(''I'')") — das Escaping der
+        // einfachen Anführungszeichen passiert zentral in compileExecuteCommand().
+        $command->command = "ADDRPYLE SEQNBR($sequenceNumber) MSGID(CPA32B2) RPY('I')";
 
         return $this->compileExecuteCommand($blueprint, $command);
     }
@@ -820,12 +851,16 @@ EOT;
     /**
      * Compile a removeReplyListEntry command.
      *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
+     * Erfordert einen DB2Blueprint, da nur dieser getReplyListSequenceNumber() kennt.
      */
-    public function compileRemoveReplyListEntry(Blueprint $blueprint, Fluent $command)
+    public function compileRemoveReplyListEntry(Blueprint $blueprint, Fluent $command): string
     {
+        if (! $blueprint instanceof DB2Blueprint) {
+            throw new \LogicException(
+                'compileRemoveReplyListEntry erfordert einen DB2Blueprint, erhalten: '.get_class($blueprint)
+            );
+        }
+
         $sequenceNumber = $blueprint->getReplyListSequenceNumber();
         $command->command = "RMVRPYLE SEQNBR($sequenceNumber)";
 
@@ -834,12 +869,8 @@ EOT;
 
     /**
      * Compile a changeJob command.
-     *
-     * @param  Blueprint  $blueprint
-     * @param  Fluent  $command
-     * @return string
      */
-    public function compileChangeJob(Blueprint $blueprint, Fluent $command)
+    public function compileChangeJob(Blueprint $blueprint, Fluent $command): string
     {
         $command->command = 'CHGJOB INQMSGRPY(*SYSRPYL)';
 

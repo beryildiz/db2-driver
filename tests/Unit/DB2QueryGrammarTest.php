@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Beryildiz\DB2Driver\DB2Connection;
 use Beryildiz\DB2Driver\DB2QueryGrammar;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
@@ -109,4 +110,85 @@ it('compileExists erzeugt valides SQL mit 1 exists und FETCH FIRST 1 ROWS ONLY',
 
     expect($sql)->toContain('1 exists');
     expect($sql)->toContain('FETCH FIRST 1 ROWS ONLY');
+});
+
+// Hilfsfunktion: Erstellt eine Grammar, deren Connection einen Table-Prefix trägt.
+// compileAnsiOffset() liest den Prefix über wrapTable() aus $this->connection —
+// nicht aus der (gemockten) Builder-Connection.
+function makeGrammarWithPrefix(string $prefix = ''): DB2QueryGrammar
+{
+    $connection = new DB2Connection(fn () => null, 'testdb', $prefix, []);
+    $connection->useDefaultSchemaGrammar();
+
+    return new DB2QueryGrammar($connection);
+}
+
+it('compileSelect mit offset baut ANSI-Offset-Query ohne Prefix', function () {
+    $grammar = makeGrammarWithPrefix();
+    $builder = makeQueryBuilder();
+    $builder->from('employees')->offset(10);
+    $builder->grammar = $grammar;
+
+    $sql = $grammar->compileSelect($builder);
+
+    expect($sql)->toContain('select employees.*,  row_number() over (order by 1) as row_num');
+    expect($sql)->toContain('where row_num >= 11');
+});
+
+it('compileSelect mit offset behält Table-Prefix bei', function () {
+    $grammar = makeGrammarWithPrefix('pfx_');
+    $builder = makeQueryBuilder();
+    $builder->from('employees')->offset(10);
+    $builder->grammar = $grammar;
+
+    $sql = $grammar->compileSelect($builder);
+
+    expect($sql)->toContain('select pfx_employees.*');
+});
+
+it('compileSelect mit offset setzt Prefix bei schema-qualifizierter Tabelle auf das letzte Segment (Regression)', function () {
+    $grammar = makeGrammarWithPrefix('pfx_');
+    $builder = makeQueryBuilder();
+    $builder->from('MYLIB.employees')->offset(10);
+    $builder->grammar = $grammar;
+
+    $sql = $grammar->compileSelect($builder);
+
+    expect($sql)->toContain('select MYLIB.pfx_employees.*');
+    expect($sql)->not->toContain('pfx_MYLIB.employees');
+});
+
+it('compileSelect mit offset ohne orderBy fügt Dummy "order by 1" ein', function () {
+    $grammar = makeGrammarWithPrefix();
+    $builder = makeQueryBuilder();
+    $builder->from('employees')->offset(5);
+    $builder->grammar = $grammar;
+
+    $sql = $grammar->compileSelect($builder);
+
+    expect($sql)->toContain('over (order by 1)');
+});
+
+it('compileSelect mit offset und limit erzeugt "between"-Constraint statt FETCH FIRST', function () {
+    $grammar = makeGrammarWithPrefix();
+    $builder = makeQueryBuilder();
+    $builder->from('employees')->offset(10)->limit(5);
+    $builder->grammar = $grammar;
+
+    $sql = $grammar->compileSelect($builder);
+
+    expect($sql)->toContain('where row_num between 11 and 15');
+    expect($sql)->not->toContain('FETCH FIRST');
+});
+
+it('compileSelect mit offset und expliziten Spalten überschreibt Spalten nicht mit *', function () {
+    $grammar = makeGrammarWithPrefix();
+    $builder = makeQueryBuilder();
+    $builder->from('employees')->select(['id', 'name'])->offset(10);
+    $builder->grammar = $grammar;
+
+    $sql = $grammar->compileSelect($builder);
+
+    // wrapValue() der DB2-Grammar fügt keine Anführungszeichen hinzu.
+    expect($sql)->toContain('select id, name,  row_number()');
 });

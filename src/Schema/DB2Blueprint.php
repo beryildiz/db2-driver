@@ -12,8 +12,11 @@ class DB2Blueprint extends Blueprint
 {
     /**
      * The sequence number of reply list entries.
+     *
+     * Bewusst nullable initialisiert: compileRemoveReplyListEntry() darf nie auf eine
+     * uninitialisierte typed property zugreifen (sonst Fatal Error statt sprechender Meldung).
      */
-    private int $replyListSequenceNumber;
+    private ?int $replyListSequenceNumber = null;
 
     /**
      * The system name for the table (IBM i short name, max 10 chars).
@@ -22,11 +25,16 @@ class DB2Blueprint extends Blueprint
 
     /**
      * Get the sequence number of reply list entries.
-     *
-     * @return int
      */
-    public function getReplyListSequenceNumber()
+    public function getReplyListSequenceNumber(): int
     {
+        if ($this->replyListSequenceNumber === null) {
+            throw new \LogicException(
+                'DB2Blueprint: Es wurde keine Reply-List-Sequenznummer gesetzt. '.
+                'addReplyListEntry muss vor removeReplyListEntry kompiliert werden.'
+            );
+        }
+
         return $this->replyListSequenceNumber;
     }
 
@@ -81,10 +89,13 @@ class DB2Blueprint extends Blueprint
      * Laravel 12 hat den Elternparameter $operatorClass (Postgres-Operatorklassen) hinzugefügt —
      * ohne ihn hier ist die Signatur inkompatibel (Fatal Error beim Laden der Klasse).
      *
-     * Für Typ 'index': explizit übergebenen Namen respektieren (nur generieren, wenn null) und
-     * indexSystem-Flag anhängen — ohne diesen Zweig würde ein explizites
-     * $table->index($cols, 'my_idx') stumm einen anderen Namen erzeugen, was
-     * synchro()/dropSynchro() inkonsistent macht.
+     * Für Typ 'index' wird zusätzlich das von compileIndex() ausgewertete indexSystem-Attribut
+     * gesetzt (IBM i "for system name"). Es bleibt wie im Original ungenutzt (false) — der
+     * Aufsatzpunkt ist bewusst erhalten, damit compileIndex() unverändert bleiben kann.
+     *
+     * Der übergebene $index wird respektiert und nur generiert, wenn er null ist. Das Original
+     * verwarf ihn bedingungslos, wodurch $table->index($cols, 'my_idx') stumm einen anderen
+     * Namen erzeugte und synchro()/dropSynchro() nicht zusammenpassten.
      *
      * @param  string|array  $columns
      * @return Fluent

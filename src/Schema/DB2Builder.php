@@ -17,18 +17,9 @@ class DB2Builder extends Builder
      */
     public function hasTable($table): bool
     {
-        $sql = $this->db2Grammar()->compileTableExists();
-        $schemaTable = explode('.', $table);
+        [$schema, $table] = $this->parseQualifiedTable($table);
 
-        if (count($schemaTable) > 1) {
-            $schema = $schemaTable[0];
-            $table = $this->db2Connection()->getTablePrefix().$schemaTable[1];
-        } else {
-            $schema = $this->db2Connection()->getDefaultSchema();
-            $table = $this->db2Connection()->getTablePrefix().$table;
-        }
-
-        return count($this->db2Connection()->select($sql, [
+        return count($this->db2Connection()->select($this->db2Grammar()->compileTableExists(), [
             $schema,
             $table,
         ])) > 0;
@@ -39,18 +30,9 @@ class DB2Builder extends Builder
      */
     public function getColumnListing($table): array
     {
-        $sql = $this->db2Grammar()->compileColumnExists();
-        $schema = $this->db2Connection()->getDefaultSchema();
-        $table = $this->db2Connection()->getTablePrefix().$table;
+        [$schema, $table] = $this->parseQualifiedTable($table);
 
-        $tableExploded = explode('.', $table);
-
-        if (count($tableExploded) > 1) {
-            $schema = $tableExploded[0];
-            $table = $tableExploded[1];
-        }
-
-        $results = $this->db2Connection()->select($sql, [
+        $results = $this->db2Connection()->select($this->db2Grammar()->compileColumnExists(), [
             $schema,
             $table,
         ]);
@@ -58,13 +40,34 @@ class DB2Builder extends Builder
         $res = $this->db2Processor()->processColumnListing($results);
 
         return array_values(array_map(function ($r) {
-            // IBM i liefert Spaltennamen in Großbuchstaben — case-insensitiver Zugriff,
-            // identisch zum Muster in DB2Processor::processInsertGetId().
-            $row = (array) $r;
-            $lower = array_change_key_case($row, CASE_LOWER);
+            // IBM i liefert Spaltennamen je nach PDO::ATTR_CASE in Groß- oder
+            // Kleinschreibung — daher case-insensitiver Zugriff.
+            $lower = array_change_key_case((array) $r, CASE_LOWER);
 
-            return $lower['column_name'];
+            return trim((string) $lower['column_name']);
         }, $res));
+    }
+
+    /**
+     * Zerlegt eine (optional schema-qualifizierte) Tabellenreferenz in Schema und
+     * gepräfixten Tabellennamen.
+     *
+     * Wichtig: Der Table-Prefix wird erst NACH der Schema-Trennung angewendet —
+     * andernfalls landete der Prefix vor dem Schemanamen ("pfx_MYLIB.tab").
+     * Ohne explizites Schema greift das Connection-Default-Schema.
+     *
+     * @return array{string, string}
+     */
+    private function parseQualifiedTable(string $table): array
+    {
+        // parseSchemaAndTable() der Basisklasse liefert zusätzlich den Guard gegen
+        // dreiteilige Referenzen ("db.schema.table" -> InvalidArgumentException).
+        [$schema, $table] = $this->parseSchemaAndTable($table);
+
+        return [
+            $schema ?? $this->db2Connection()->getDefaultSchema(),
+            $this->db2Connection()->getTablePrefix().$table,
+        ];
     }
 
     /**
@@ -76,13 +79,21 @@ class DB2Builder extends Builder
     protected function build(Blueprint $blueprint)
     {
         $schemaTable = explode('.', $blueprint->getTable());
+        $schemaSwitched = count($schemaTable) > 1;
 
-        if (count($schemaTable) > 1) {
+        if ($schemaSwitched) {
             $this->db2Connection()->setCurrentSchema($schemaTable[0]);
         }
 
-        $blueprint->build();
-        $this->db2Connection()->resetCurrentSchema();
+        try {
+            $blueprint->build();
+        } finally {
+            // Ohne finally bliebe das Connection-Schema nach einer fehlgeschlagenen
+            // Migration dauerhaft verstellt und würde alle Folgequeries verfälschen.
+            if ($schemaSwitched) {
+                $this->db2Connection()->resetCurrentSchema();
+            }
+        }
     }
 
     /**

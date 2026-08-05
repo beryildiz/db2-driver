@@ -40,7 +40,7 @@ grüner CI-Job existiert. Drei parallele Branches bei einem Maintainer sind ein 
 das nicht gehalten wird — ein nicht gehaltenes Kompatibilitätsversprechen ist schlimmer als
 ein enges.
 
-## DB2SchemaGrammar-Zerlegung (823 Zeilen)
+## DB2SchemaGrammar-Zerlegung (aktuell 1167 Zeilen)
 
 **Traits, nicht Composition.** Grund: Illuminate dispatcht Schema-Grammar über
 **Namenskonventionen** (`compile{Command}`, `type{Type}`, `modify{Modifier}`). Composition
@@ -52,12 +52,57 @@ Schnitt folgt den Fragen, die Contributor tatsächlich stellen:
 Schema/Concerns/
   CompilesTableCommands.php         # create/label/add/drop/rename/dropColumn/renameColumn/change
   CompilesIndexCommands.php         # primary/unique/index/foreign + drop*
-  CompilesIntrospectionQueries.php  # tableExists/columnExists/tables/views/columns/indexes
+  CompilesIntrospectionQueries.php  # tableExists/tables/views/columns/indexes/foreignKeys/schemas
   CompilesSystemCommands.php        # addReplyListEntry/removeReplyListEntry/changeJob
   RendersColumnTypes.php            # 19× type*()  — häufigster Erst-PR
   RendersColumnModifiers.php        # 8× modify*() + getDefaultValue()
 ```
 `DB2SchemaGrammar` bleibt ~90 Zeilen Einstiegspunkt.
+
+## Scope-Grenze: Funktionsgleichstand mit dem Original
+
+**Gewählt (Option B, umgesetzt):** Das Paket bietet genau die Fähigkeiten des Original-Pakets
+(BWICompanies) plus vollständige L12-Kompatibilität plus Bugfixes vorbestehender Defekte.
+**Keine neuen Fähigkeiten.**
+
+Begründung: Ein früherer Versuch ergänzte eine vollständige Introspection-Suite (~600 Zeilen
+Katalog-SQL). Ohne IBM-i-Zugang war sie nicht verifizierbar und enthielt 5 Blocker, darunter
+ein Datenverlust-Risiko (`dropAllTables()` ohne Schema-Guard). Entscheidend: Laravels
+Basisklassen melden fehlende Introspection mit einer klaren `RuntimeException`/`LogicException` —
+die Abwesenheit ist also **sicher und ehrlich**, während unverifiziertes Katalog-SQL die
+Verifikation in die Produktion verlagert hätte.
+
+**Leitregel für künftige Erweiterungen:** Eine Fähigkeit, die das Original nicht hatte und die
+gegen IBM-i-Systemkatalog-Views arbeitet, wird erst gemerged, wenn ein Integrationstest gegen
+ein echtes IBM i grün ist. Vorher gehört sie nicht ins Paket — auch nicht „vorläufig".
+
+## Introspection — Vorgaben für eine künftige Implementierung
+
+Falls Introspection später gebaut wird:
+
+**Katalogquelle `qsys2.*`, nicht `information_schema`.** `information_schema` ist auf IBM i eine
+Kompatibilitätssicht mit release- und PTF-abhängiger Vollständigkeit. `qsys2.*` (`SYSTABLES`,
+`SYSVIEWS`, `SYSCOLUMNS`, `SYSINDEXES`, `SYSKEYS`, `SYSCST`, `SYSKEYCST`, `SYSREFCST`,
+`SYSTYPES`, `SYSSCHEMAS`, `SYSTABLESTAT`) ist der dokumentierte Weg. `hasTable`/
+`getColumnListing` dürfen dann von `information_schema` mitmigriert werden — aber nur im selben
+verifizierten Schritt, nie vorher (sie sind produktiv erprobt).
+
+**Zwei getrennte Schema-Scope-Methoden**, nicht eine:
+- `compileSchemaListingWhere($schema, $col)` — für `getTables/Views/Types/Schemas`;
+  null ⇒ System-Schemas ausschließen (L12-Semantik „alle Schemas")
+- `compileSchemaTableWhere($schema, $col)` — für `getColumns/Indexes/ForeignKeys`;
+  null ⇒ `CURRENT SCHEMA`
+
+Der zweite Fall ist zwingend: Basis-`Builder::getColumns()` ruft `parseSchemaAndTable()` **ohne**
+`withDefaultSchema`, das Schema ist also `null`. Ein Fallback auf „alle Nicht-System-Schemas"
+mischt die Spalten aller gleichnamigen Tabellen im System zusammen. Postgres macht es genauso
+(`$schema ? quoteString($schema) : 'current_schema()'`).
+
+**Destruktive Operationen (`dropAllTables`/`dropAllViews`) brauchen einen harten Schema-Guard**
+(`LogicException`, wenn kein Schema bestimmbar) und dürfen kein `CASCADE` verwenden — DB2 for i
+kennt nur `RESTRICT`. FK-Constraints müssen vorab einzeln gedroppt werden.
+
+Offene Katalog-Verifikationspunkte: siehe `mem:architecture/findings`.
 
 ## Typisierte Konfiguration
 
@@ -102,12 +147,15 @@ Stufe 1 ist der eigentliche Contributor-Enabler und ersetzt die heutigen schwach
   Properties ohne `?`); native Typen bleiben voll geprüft.
 Echte method.notFound-Fehler in `DB2Builder`/`DB2SchemaGrammar` sind durch Narrowing-Accessoren
 mit `instanceof`-Guard behoben. Level-Steigerung (6+) ist jetzt möglich, aber erst nach V5
-(Introspection) sinnvoll — dann gibt es echten Coverage-Gewinn.
+(Introspection vollständig korrekt + getestet) sinnvoll.
 
 ## CI
 
 `prefer-lowest` **und** `prefer-stable` pro Laravel-Version — einzige Absicherung gegen zu
 weite `^`-Constraints, also gegen genau die Fehlerklasse aus V1/V2.
+
+`static.yml` nutzt noch `composer install` statt `composer update` — das ist falsch solange
+`composer.lock` gitignored ist (N6 / `mem:architecture/findings`).
 
 ## ARCHITECTURE.md — Pflichtinhalte
 

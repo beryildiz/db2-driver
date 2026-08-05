@@ -1,101 +1,103 @@
 # Architektur-Befunde — db2-driver
 
-Ergebnis der Architektur-Analyse. Kritische Funde, die vor jedem Refactoring adressiert werden müssen.
+Stand: Option-B-Umsetzung abgeschlossen (Laravel-12-Migration + Bugfixes, ohne Introspection).
 
-## Status (Stand: Laravel-12-only Migration)
+## Status: alle Befunde geschlossen
 
-Projekt ist seit der Migration auf **Laravel 12 exklusiv** festgelegt (`composer.json`:
-`illuminate/* ^12.0`, `php ^8.2`, `testbench ^10.0`, `pest ^3.7`, kein `minimum-stability: dev`
-mehr). V2, V3, V4, V6, V7, V9 sind **behoben** (siehe unten). V1 ist damit strukturell erledigt
-(nur noch eine Zielversion). V5/V8/V10 sind weiterhin offen.
+`vendor/bin/pint --test` ✅ · `vendor/bin/phpstan analyse` ✅ 0 Fehler · `vendor/bin/pest` ✅ 102 Tests
 
-## Kritisch (🔴) — behoben
+**Kein offener Blocker, kein unverifiziertes Katalog-SQL im Paket.**
 
-- **V2 — Signatur-Drift war Fatal Error, jetzt gefixt.** Reale L12-Änderungen (verifiziert in
-  `vendor/laravel/framework`, nicht nur vermutet):
-  - `Schema\Blueprint::__construct(Connection $connection, $table, ?Closure $callback = null)`
-    — Connection jetzt im Konstruktor, nicht mehr in `toSql()`/`build()`.
-  - `Schema\Blueprint::toSql()` und `::build()` sind **parameterlos** (Connection/Grammar kommen
-    aus `$this->connection`/`$this->grammar`, gesetzt im Konstruktor).
-  - `Schema\Grammars\Grammar::compile*(Blueprint $blueprint, Fluent $command)` — **kein**
-    `Connection`-Parameter mehr. Grammar selbst erbt `Illuminate\Database\Grammar::__construct(Connection $connection)`
-    und hat über `$this->connection` (protected, geerbt) Zugriff, falls eine Query nötig ist
-    (z.B. `compileAddReplyListEntry`).
-  - `Connection::withTablePrefix()` **existiert nicht mehr** — Grammar zieht den Prefix selbst
-    via `$this->connection->getTablePrefix()` (auch `$this->tablePrefix`-Property auf Grammar
-    ist weg, nur noch `getTablePrefix()`-Methode).
-  - `Schema\Builder::createBlueprint()` ruft den Resolver mit `($connection, $table, $callback)`
-    auf (Connection zuerst, 3 Argumente) — vorher nur `($table, $callback)`.
-  - `Schema\Grammars\Grammar::compileTableExists($schema, $table)` — Basisklasse deklariert diese
-    Methode jetzt selbst mit 2 Pflichtparametern (vorher nicht deklariert). Override mit 0 Parametern
-    → Fatal Error. Fix: `compileTableExists($schema = null, $table = null)` (Default-Werte statt
-    Body-Änderung, um Binding-basiertes Verhalten von `DB2Builder::hasTable()` zu erhalten).
-  - `Schema\Blueprint::indexCommand($type, $columns, $index, $algorithm = null, $operatorClass = null)`
-    — neuer optionaler Parameter `$operatorClass` (Postgres-Operatorklassen). Ohne ihn: Fatal Error
-    beim Klassenladen (nicht nur beim Aufruf!). **Das ist der teuerste Fehlermodus von V2** — er
-    tritt schon beim `require`/Autoload der Klasse auf, nicht erst bei Nutzung.
-  - **Wichtige PHP-Erkenntnis:** Konstruktoren sind von PHPs Signaturkompatibilitätsprüfung
-    ausgenommen (`__construct` darf beliebig enger typisieren als der Elternkonstruktor, empirisch
-    verifiziert). Normale Methoden dürfen dagegen NICHT weniger/strengere Parameter haben als der
-    Elternteil (führt zu `Fatal error: Declaration ... must be compatible`), dürfen aber
-    zusätzliche **optionale** Parameter (mit Default) ergänzen und den Rückgabetyp verengen
-    (Kovarianz), auch wenn der Elternteil gar keinen Rückgabetyp deklariert.
-  - **Vorgehen bei zukünftigen Laravel-Upgrades:** NICHT auf Doku/Gedächtnis verlassen — immer
-    per `grep`/`read` gegen `vendor/laravel/framework/src/Illuminate/Database/**` die reale
-    Signatur verifizieren, dann zusätzlich mit einem Mini-Skript (`new PDO`-freie Instanziierung
-    aller Schema-Klassen + `ReflectionMethod`-Aufrufe) auf `Fatal error: Declaration ... must be
-    compatible` prüfen. Das deckt Fälle ab, die nur beim Klassenladen (nicht bei jedem Testlauf)
-    auffallen, wie `indexCommand()`.
-- **V3 — Verbindungen sind jetzt lazy.** `DB2ServiceProvider` bindet `db.connector.db2` im
-  Container (nötig, weil `ConnectionFactory::createConnector()` sonst mit
-  `"Unsupported driver [db2]"` abbricht, sobald die lazy-PDO-Closure aufgerufen wird) und gibt
-  die von Laravel übergebene Closure unverändert an `DB2Connection` weiter, statt
-  `$connector->connect($config)` sofort aufzurufen. `DB2Connection::__construct` akzeptiert
-  `PDO|\Closure $pdo` (safe dank Konstruktor-Ausnahme, siehe oben).
-- **V6 — behoben.** `DB2Processor::processInsertGetId` nutzt jetzt `$query->getGrammar()->columnize()`
-  statt `new DB2QueryGrammar()` (Table-Prefix-Verlust behoben).
-- **V7 — behoben.** `DB2Connection::setCurrentSchema('')` sendet jetzt `SET SCHEMA DEFAULT` als
-  literales SQL-Keyword statt `SET SCHEMA ?` mit Binding `"DEFAULT"`.
+## Referenz-Fork (wichtig für künftige Upgrades)
 
-## Kritisch (🔴) — weiterhin offen
+`anchan42/db2-driver` gilt in der Community als „der Laravel-12-Fix", ist es aber nur für den
+**Query-Pfad**. Der Fork ändert 3 Dateien (`composer.json`, `DB2Connection`, `DB2Processor`),
+`src/Schema/*` bleibt unangetastet. Damit fatalt dort **jeder `Schema::`-Aufruf und jedes
+`php artisan migrate`** unter L12. Nicht als Vollständigkeits-Referenz verwenden.
 
-- **V1 (strukturell erledigt)** — nur noch Laravel 12 deklariert, kein Multi-Version-Support mehr
-  vorzutäuschen.
+## Verifizierte L12-Signaturbrüche im Schema-Layer
 
-## Mittel (🟠) — weiterhin offen
+Alle in unserem Fork behoben, in `anchan42` offen. Gegen `laravel/framework 12.64.0` verifiziert:
 
-- **V5** — Schema-Introspection fehlt (`compileTables/Views/Columns/Indexes/ForeignKeys`, `dropAllTables()`) → `Schema::getColumns()`, `db:show`, `db:table`, `migrate:fresh` funktionieren nicht.
+| Baseline-Code | L12-Parent | Fehlermodus |
+|---|---|---|
+| `DB2Blueprint::toSql(Connection, Grammar)` | `toSql()` — 0 Parameter | Fatal error beim Klassenladen |
+| `DB2Blueprint::indexCommand($t,$c,$i,$algorithm=null)` | `indexCommand(…, $operatorClass=null)` | Fatal error beim Klassenladen |
+| `DB2SchemaGrammar::compileTableExists()` — 0 Parameter | `compileTableExists($schema,$table)` | Fatal error beim Klassenladen |
+| `DB2Builder::build()` → `$blueprint->build($conn,$grammar)` | `build()` parameterlos | `ArgumentCountError` |
+| `DB2Builder::createBlueprint()` → `new DB2Blueprint($table,$cb)` | `Blueprint::__construct(Connection,$table,?Closure)` | `ArgumentCountError` |
+| `compileCreate/Label/AddReplyListEntry(…, Connection)` | `Blueprint::toSql()` ruft mit 2 Args | `ArgumentCountError` |
+| `compileAdd()` iteriert alle Blueprint-Spalten | `addImpliedCommands()` erzeugt 1 add-Command pro Spalte (`Blueprint.php:193-205`) | N×N Statements, „column already exists" |
+| `$this->tablePrefix` in `compileAnsiOffset` | Property entfernt; `Grammar::$connection` bleibt (kein Fehler) | Prefix verschwand still — Fix: `wrapTable()` statt manueller Konkatenation |
 
-## Behoben (Infrastruktur/Tooling)
+**Lehre:** Konstruktoren sind von PHPs Signaturprüfung ausgenommen, normale Methoden nicht.
+Fatal errors treten beim **Klassenladen** auf, nicht erst bei Nutzung — deshalb bei jedem
+Laravel-Upgrade die realen Signaturen in `vendor/laravel/framework/src/Illuminate/Database/**`
+prüfen, nicht Doku oder Gedächtnis.
 
-- **V4 — behoben.** `compileRenameColumn()` und `compileChange()` in `DB2SchemaGrammar` ergänzt. Tested in `tests/Unit/DB2SchemaGrammarTest.php`.
-- **V8 — behoben.** `phpunit.xml.dist` nutzt PHPUnit-11-Schema (`<source>`, keine veralteten Attribute).
-- **V10 — behoben.** CI-Workflows existieren, `pint`/`larastan` in `require-dev`, `phpstan.neon`/`phpstan-baseline.neon`/`pint.json` versioniert, README auf `beryildiz` korrigiert, kein `minimum-stability: dev`.
+**Kein Bug:** `Illuminate\Database\Grammar::$connection` (protected) existiert weiterhin und wird
+im Konstruktor gesetzt; `Query\Grammars\Grammar` redeklariert es nicht. Meldet der Editor
+„Undefined property '$connection'" auf einer Grammar-Subklasse, ist das ein veralteter
+Intelephense-Index (Workspace neu indexieren), kein echter Fehler — PHPStan/Larastan bestätigt
+das. `$query->getConnection()->getTablePrefix()` (Vorbild `SQLiteGrammar`) ist trotzdem **keine**
+Alternative für uns: `ConnectionInterface` deklariert `getTablePrefix()` nicht, das würde Larastan
+brechen. `Grammar::getTablePrefix()` ist zudem `@deprecated`. Richtige Lösung: `wrapTable()`.
 
-## Kritisch (🔴) — behoben (weitere)
+## Bewusst nicht implementiert (Basisklasse meldet es sauber)
 
-- **V9 — behoben.** Zentrales Escaping einfacher Anführungszeichen in
-  `DB2SchemaGrammar::compileExecuteCommand()` (`str_replace("'", "''", ...)`). Aufrufer dürfen
-  NICHT mehr selbst vor-escapen — `compileAddReplyListEntry()` baute vorher `RPY(''I'')` von Hand,
-  das wurde zu `RPY('I')` korrigiert (sonst doppeltes Escaping → `''''`). `README.md` bewarb noch
-  `bwicompanies/db2-driver` (V10-Symptom, README-Teil separat gefixt: Paketname + Banner-URL auf
-  `beryildiz` korrigiert, Laravel-12-only-Hinweis in Requirements ergänzt).
+| Feature | Verhalten | Grund |
+|---|---|---|
+| `compileTables/Views/Types/Columns/Indexes/ForeignKeys/Schemas` | `RuntimeException` aus Basis-Grammar | Katalog-SQL ohne IBM-i-Zugang nicht verifizierbar |
+| `dropAllTables()`/`dropAllViews()`/`dropAllTypes()` | `LogicException` aus Basis-Builder | Kein globaler FK-Schalter, kein `DROP TABLE CASCADE` auf DB2 for i → Teilimplementierung wäre gefährlicher als ein klarer Fehler. **`migrate:fresh`/`db:wipe` damit nicht verfügbar** |
+| `getSchemaState()` | `BadMethodCallException` | `schema:dump` nicht unterstützt |
+| `escapeString()`/`escapeBinary()` | `PDO::quote()` gibt bei PDO_ODBC `false` | `DB::pretend()`/Query-Log-Rohsql unbrauchbar (W7, eigener Scope) |
+| `compileRandom()` | Basis liefert `RANDOM()`, DB2 for i braucht `RAND()` | `inRandomOrder()` defekt (W9, eigener Scope) |
+| 9 Spaltentypen (`json`, `jsonb`, `ulid`, `tinyInteger`, `mediumInteger`, `tinyText`, `year`, `ipAddress`, `macAddress`) | `BadMethodCallException` über `Macroable::__call` | Wie im Original-Paket; kein sauberes DB2-Mapping |
 
-## Neue Defekte (entdeckt nach L12-Migration, kein V-Tag bisher)
+Alles davon ist im README unter „Limitations" dokumentiert und durch Tests abgesichert.
 
-| ID | Ort | Befund | Schwere |
-|---|---|---|---|
-| N1 | `Schema/DB2Blueprint.php:91-97` | `indexCommand()` verwirft für Typ `index` den übergebenen Namen → `synchro()`/`dropSynchro()` inkonsistent | 🔴 |
-| N2 | `Schema/DB2SchemaGrammar.php:372-384` | `compileDropIndex`: `alter table X drop index Y` — DB2 for i kennt kein `ALTER TABLE … DROP INDEX`; korrekt: `drop index Y` | 🔴 |
-| N3 | `Schema/DB2SchemaGrammar.php:534-573` | `typeDate/typeTime/typeTimestamp` hängen bei `!nullable` selbst `default current_*` an; `modifyDefault` hängt bei explizitem Default noch ein zweites `default` an → ungültiges SQL | 🟠 |
-| N4 | `DB2Connector.php:21-22` | `SET SCHEMA ?` als Binding (V7-Fehlerklasse) + kein `strtoupper` — inkonsistent zu `DB2Connection::setCurrentSchema()` | 🟠 |
-| N5 | `Schema/DB2Builder.php:60` | `$r->column_name` lowercase; IBM i liefert uppercase → undefined property. `getColumnListing` nutzt `getDatabaseName()` statt `getDefaultSchema()` als Schema-Quelle | 🟠 |
-| N6 | `.github/workflows/static.yml:16,26` | `composer install` ohne Lock-Datei (gitignored) → Composer fällt implizit auf Update zurück; `tests.yml` macht es korrekt mit `composer update` | 🟡 |
-| N7 | `DB2QueryGrammar.php:95` (alt) | **Logikbug (behoben):** `isset($query->getRawBindings()['order'])` war immer `true` (Key existiert garantiert im Shape) → Order-Bindings wurden bedingungslos nach `select` verschoben. Fix: `!== []` | ✅ |
+## Falls Introspection später gebaut wird
 
-## Duplikationen
+Der frühere Introspection-Versuch wurde entfernt, weil er 5 Blocker enthielt. Wer ihn neu
+angeht, muss diese Punkte adressieren — sie sind alle **vor** dem ersten Release gegen ein
+echtes IBM i zu verifizieren:
 
-- `explode('.', $table)` + `str_replace($schema.'_', '', $index)` **11× dupliziert** in 4 Varianten (DB2SchemaGrammar 8×, DB2Builder 3×) → `Support/QualifiedTableName` VO.
-- `wrapValue()` identisch in `DB2QueryGrammar` + `DB2SchemaGrammar`. Wichtig: Methode heißt `wrapValue`, **wrapped aber absichtlich nicht** (IBM i: `"…"` erzwingt Case-Sensitivität und bricht System-Naming) — braucht Kommentar, sonst wird sie „repariert".
-- `SET SCHEMA` an 2 Orten (`DB2Connector::connect()`, `DB2Connection::setCurrentSchema()`).
-- `QCMDEXC` an 2 Orten (`DB2Connection::executeCommand()`, `DB2SchemaGrammar::compileExecuteCommand()`).
+| ID | Problem |
+|---|---|
+| B1 | `syskeycst kc`/`kp` nur über Constraint-Name gejoint → kartesisches Produkt; Positions-Join nötig |
+| B2 | Positionsspalte in `QSYS2.SYSKEYCST` heißt nach IBM-Doku `COLUMN_POSITION`, nicht `ORDINAL_POSITION` (`SYSKEYS` nutzt `ORDINAL_POSITION`) |
+| B3 | `dropAllTables()` ohne Schema-Guard löscht bei fehlendem `config.schema` alle Tabellen aller Bibliotheken |
+| B4 | `DROP TABLE … CASCADE` existiert auf DB2 for i nicht (nur `RESTRICT`) |
+| B5 | Basis-`getColumns()` ruft `parseSchemaAndTable()` **ohne** `withDefaultSchema` → Schema ist `null`. Tabellenbezogene Queries müssen dann auf `CURRENT SCHEMA` defaulten (wie Postgres), nicht auf „alle Nicht-System-Schemas" |
+| W3 | `SYSCOLUMNS.IS_GENERATED` unverifiziert — `COLUMN_EXPRESSION` allein genügt zur Ableitung, damit entfällt das Risiko |
+| W4 | `SYSINDEXES.IS_UNIQUE` existiert und sollte gemappt werden, statt `unique` hart auf 0 zu setzen |
+| W5 | System-Schema-Ausschlussliste war lückenhaft (`QGPL`, `QIBM`, `SYSIBMTS`, `QSYS38`, `QPFRDATA`, `SYSPARTITIONINDEXES` fehlten) |
+
+Empfohlenes Vorgehen: `compileSchemaWhereClause` in **zwei** Methoden trennen (Listen-Scope mit
+System-Ausschluss vs. Tabellen-Scope mit `CURRENT SCHEMA`), und vor dem Merge einen
+Integrationstest `select <spalten> from qsys2.<view> where 1 = 0` pro Katalogview laufen
+lassen — null Zeilen, keine Datenabhängigkeit, aber SQL0206 bei jedem falschen Spaltennamen.
+
+## Korrigierte Fehleinschätzungen (nicht wiederholen)
+
+- **`drop table if exists` ist Baseline-Verhalten**, kein Bug. Ein früherer Test forderte das
+  Gegenteil und war die Neuerfindung. IBM i ≥ 7.2 unterstützt es; im README dokumentiert.
+- **Introspection war keine L12-Regression.** Die Methoden gab es im Paket nie; L12 hat daran
+  nichts gebrochen. Die Basisklasse fängt ihre Abwesenheit mit `RuntimeException` ab.
+  Der einzige introspection-nahe L12-Bruch ist `compileTableExists()` (Signatur).
+
+## Bekannte technische Schuld (bewusst akzeptiert)
+
+- `compileTableExists()` ignoriert seine `$schema`/`$table`-Parameter und liefert
+  `?`-Platzhalter-SQL; `DB2Builder::hasTable()` übergibt sie als Bindings. Abweichend vom
+  L12-Vertrag (literales SQL + `scalar()`), aber jahrelang produktiv erprobt — ohne IBM-i-Zugang
+  nicht anzutasten. Gleiches gilt für `compileColumnExists()` (kein L12-API mehr).
+- `hasTable`/`getColumnListing` nutzen `information_schema.*`. Konsolidierung auf `qsys2.*`
+  erst gemeinsam mit einer verifizierten Introspection.
+- `spatie/laravel-package-tools` bleibt Runtime-Dependency, obwohl `DB2DriverServiceProvider`
+  nur noch `$package->name()` aufruft. Entfernen wäre ein BC-Bruch (Nutzer könnten den Provider
+  in `bootstrap/providers.php` listen).
+- `DB2SchemaGrammar` ist 887 Zeilen; Zerlegung in Traits siehe `mem:architecture/decisions`.
+- Duplikation: `explode('.', $table)` + Schema-Stripping mehrfach in `DB2SchemaGrammar`;
+  `wrapValue()` identisch in beiden Grammars (quotet absichtlich **nicht** — IBM i erzwingt mit
+  `"…"` Case-Sensitivität und bricht System-Naming).

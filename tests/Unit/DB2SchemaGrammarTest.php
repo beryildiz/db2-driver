@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Beryildiz\DB2Driver\Schema\DB2Blueprint;
 use Beryildiz\DB2Driver\Schema\DB2SchemaGrammar;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Fluent;
@@ -92,17 +93,17 @@ it('compileDrop gibt drop table zurück', function () {
         ->toContain('orders');
 });
 
-it('compileDropIfExists gibt drop table zurück (kein IF EXISTS)', function () {
+it('compileDropIfExists gibt DROP TABLE IF EXISTS zurück (erfordert IBM i >= 7.2)', function () {
+    // "DROP TABLE ... IF EXISTS" gibt es auf IBM i erst ab Release 7.2. Das entspricht dem
+    // Verhalten des Original-Pakets und ist bewusst nicht durch eine hasTable()-Vorprüfung
+    // ersetzt (die kostete zwei zusätzliche Roundtrips pro Aufruf).
     $grammar = new DB2SchemaGrammar(makeConnection());
     $blueprint = makeBlueprint('orders');
     $command = new Fluent;
 
     $sql = $grammar->compileDropIfExists($blueprint, $command);
 
-    expect($sql)
-        ->toContain('drop table')
-        ->toContain('orders')
-        ->not->toContain('if exists');
+    expect($sql)->toBe('drop table if exists orders');
 });
 
 it('compileDropUnique verwendet DROP CONSTRAINT statt DROP INDEX', function () {
@@ -262,3 +263,172 @@ it('compileExecuteCommand verdoppelt einfache Anführungszeichen im Kommando gen
     expect($sql)
         ->toBe("CALL QSYS2.QCMDEXC('TEST ''value''')");
 });
+
+// ---------------------------------------------------------------------------
+// Laravel-12-Kernverhalten: ein "add"-Command pro Spalte
+// ---------------------------------------------------------------------------
+
+it('compileAdd erzeugt genau ein Statement für die Spalte des Commands', function () {
+    // Seit Laravel 11/12 wandelt Blueprint::addImpliedCommands() jede ColumnDefinition in
+    // einen eigenen "add"-Command mit ->column um. Würde compileAdd() über alle
+    // Blueprint-Spalten iterieren, entstünden N×N Statements ("column already exists").
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('orders');
+    $blueprint->string('first_name', 50);
+    $blueprint->string('last_name', 50);
+
+    $column = new Fluent([
+        'type' => 'string',
+        'name' => 'first_name',
+        'length' => 50,
+        'nullable' => true,
+        'default' => null,
+    ]);
+
+    $statements = $grammar->compileAdd($blueprint, new Fluent(['column' => $column]));
+
+    expect($statements)->toHaveCount(1);
+    expect($statements[0])
+        ->toContain('alter table orders add first_name varchar(50)')
+        ->not->toContain('last_name');
+});
+
+// ---------------------------------------------------------------------------
+// Weitere compile*-Kommandos
+// ---------------------------------------------------------------------------
+
+it('compileCreate ohne systemName erzeugt einfaches CREATE TABLE', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('orders');
+    $blueprint->integer('id');
+
+    $sql = $grammar->compileCreate($blueprint, new Fluent);
+
+    expect($sql)
+        ->toStartWith('create table orders (')
+        ->not->toContain('for system name');
+});
+
+it('compileCreate mit systemName ergänzt FOR SYSTEM NAME', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = new DB2Blueprint(makeConnection(), 'orders');
+    $blueprint->forSystemName('ORD');
+    $blueprint->integer('id');
+
+    $sql = $grammar->compileCreate($blueprint, new Fluent);
+
+    expect($sql)->toContain('create table orders for system name ORD (');
+});
+
+it('compileLabel erzeugt LABEL ON TABLE', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    $sql = $grammar->compileLabel(makeBlueprint('orders'), new Fluent(['label' => 'Auftraege']));
+
+    expect($sql)->toBe("label on table orders is 'Auftraege'");
+});
+
+it('compileDropPrimary erzeugt DROP PRIMARY KEY', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect($grammar->compileDropPrimary(makeBlueprint('orders'), new Fluent))
+        ->toBe('alter table orders drop primary key');
+});
+
+it('compileRename erzeugt RENAME TABLE', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect($grammar->compileRename(makeBlueprint('orders'), new Fluent(['to' => 'orders_old'])))
+        ->toBe('rename table orders to orders_old');
+});
+
+it('compileChange ergänzt SET DEFAULT bei explizitem Default', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $column = new Fluent([
+        'type' => 'string',
+        'name' => 'status',
+        'length' => 20,
+        'nullable' => false,
+        'default' => 'open',
+        'autoIncrement' => false,
+        'generated' => null,
+        'renameTo' => null,
+    ]);
+
+    $statements = $grammar->compileChange(makeBlueprint('orders'), new Fluent(['column' => $column]));
+
+    expect($statements)->toHaveCount(3);
+    expect($statements[1])->toContain('set not null');
+    expect($statements[2])->toBe("alter table orders alter column status set default 'open'");
+});
+
+// ---------------------------------------------------------------------------
+// getDefaultValue
+// ---------------------------------------------------------------------------
+
+it('getDefaultValue normalisiert Booleans zu 0/1', function () {
+    // Ein rohes PHP-false würde zu einem leeren DEFAULT interpolieren und ungültiges
+    // SQL erzeugen; DB2 for i bildet boolean als SMALLINT ab.
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect(callProtected($grammar, 'getDefaultValue', false))->toBe(0);
+    expect(callProtected($grammar, 'getDefaultValue', true))->toBe(1);
+});
+
+it('getDefaultValue verdoppelt Apostrophe in String-Defaults', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect(callProtected($grammar, 'getDefaultValue', "O'Brien"))->toBe("'O''Brien'");
+});
+
+it('getDefaultValue lässt Zahlen unangetastet', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect(callProtected($grammar, 'getDefaultValue', 42))->toBe(42);
+    expect(callProtected($grammar, 'getDefaultValue', 1.5))->toBe(1.5);
+});
+
+// ---------------------------------------------------------------------------
+// Constraint-Namen
+// ---------------------------------------------------------------------------
+
+it('modifyIncrement erzeugt bei schema-qualifizierter Tabelle einen punktfreien Constraint-Namen', function () {
+    // Constraint-Namen dürfen in DB2 for i keinen Punkt enthalten — mit
+    // $blueprint->getTable() entstand vorher "MYLIB.orders_id_primary".
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $blueprint = makeBlueprint('MYLIB.orders');
+    $column = new Fluent(['type' => 'integer', 'name' => 'id', 'autoIncrement' => true]);
+
+    $sql = callProtected($grammar, 'modifyIncrement', $blueprint, $column);
+
+    expect($sql)
+        ->toContain('orders_id_primary')
+        ->not->toContain('MYLIB.orders_id_primary');
+});
+
+// ---------------------------------------------------------------------------
+// Spaltentypen
+// ---------------------------------------------------------------------------
+
+it('typeFloat nutzt precision wenn gesetzt', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect(callProtected($grammar, 'typeFloat', new Fluent(['precision' => 24])))->toBe('float(24)');
+});
+
+it('typeFloat ohne precision gibt einfaches float zurück', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect(callProtected($grammar, 'typeFloat', new Fluent(['precision' => null])))->toBe('float');
+});
+
+it('nicht unterstützte Spaltentypen werfen einen Fehler statt falsches SQL zu erzeugen', function (string $type) {
+    // json/ulid/tinyInteger etc. sind auf DB2 for i bewusst nicht abgebildet (wie im
+    // Original-Paket). Grammar::getType() dispatcht über "type{Name}"; da Grammar das
+    // Macroable-Trait nutzt, entsteht eine sprechende BadMethodCallException statt
+    // stillschweigend falschem SQL.
+    $grammar = new DB2SchemaGrammar(makeConnection());
+
+    expect(fn () => callProtected($grammar, 'getType', new Fluent(['type' => $type])))
+        ->toThrow(BadMethodCallException::class);
+})->with(['json', 'jsonb', 'ulid', 'tinyInteger', 'mediumInteger', 'tinyText', 'year', 'ipAddress', 'macAddress']);

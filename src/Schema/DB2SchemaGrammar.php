@@ -9,6 +9,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Grammars\Grammar;
 use Illuminate\Support\Fluent;
 
+use function Illuminate\Support\enum_value;
+
 class DB2SchemaGrammar extends Grammar
 {
     /**
@@ -110,14 +112,10 @@ class DB2SchemaGrammar extends Grammar
     {
         $columns = [];
 
-        foreach ($blueprint->getColumns() as $column) {
-            // Each of the column types have their own compiler functions which are tasked
-            // with turning the column definition into its SQL format for this platform
-            // used by the connection. The column's modifiers are compiled and added.
-            $sql = $this->addPreModifiers($this->wrap($column), $blueprint, $column);
-            $sql .= ' '.$this->getType($column);
-
-            $columns[] = $this->addModifiers($sql, $blueprint, $column);
+        // getAddedColumns() statt getColumns(): mit ->change() markierte Spalten
+        // werden über compileChange() abgehandelt und dürfen hier nicht auftauchen.
+        foreach ($blueprint->getAddedColumns() as $column) {
+            $columns[] = $this->getColumn($blueprint, $column);
         }
 
         return $columns;
@@ -138,19 +136,40 @@ class DB2SchemaGrammar extends Grammar
     }
 
     /**
+     * Compile the definition of a single column (type + pre-/post-modifiers).
+     */
+    protected function getColumn(Blueprint $blueprint, $column): string
+    {
+        $sql = $this->addPreModifiers($this->wrap($column), $blueprint, $column);
+        $sql .= ' '.$this->getType($column);
+
+        return $this->addModifiers($sql, $blueprint, $column);
+    }
+
+    /**
      * Compile an add column command.
+     *
+     * Laravel erzeugt seit v11/12 pro hinzugefügter Spalte einen eigenen "add"-Command
+     * mit $command->column (siehe Blueprint::addImpliedCommands()). Würde hier über
+     * alle Blueprint-Spalten iteriert, entstünden N×N Statements ("column already
+     * exists"). Daher wird genau die Spalte dieses Commands kompiliert.
+     *
+     * @return list<string>
      */
     public function compileAdd(Blueprint $blueprint, Fluent $command): array
     {
         $table = $this->wrapTable($blueprint);
-        $columns = $this->prefixArray('add', $this->getColumns($blueprint));
-        $statements = [];
 
-        foreach ($columns as $column) {
-            $statements[] = 'alter table '.$table.' '.$column;
+        if (isset($command->column)) {
+            return ['alter table '.$table.' add '.$this->getColumn($blueprint, $command->column)];
         }
 
-        return $statements;
+        // Fallback: ein einzelner "add"-Command für alle Spalten (z. B. wenn ein
+        // Blueprint-Command manuell ohne 'column' erzeugt wurde).
+        return array_map(
+            fn (string $column): string => 'alter table '.$table.' '.$column,
+            $this->prefixArray('add', $this->getColumns($blueprint))
+        );
     }
 
     /**
@@ -261,9 +280,16 @@ class DB2SchemaGrammar extends Grammar
         return 'drop table '.$this->wrapTable($blueprint);
     }
 
+    /**
+     * Compile a drop table (if exists) command.
+     *
+     * "DROP TABLE ... IF EXISTS" gibt es auf IBM i erst ab 7.2. DB2Builder::dropIfExists()
+     * prüft daher zusätzlich vorab per hasTable(), damit auch ältere Releases nicht
+     * mit SQL0204 abbrechen.
+     */
     public function compileDropIfExists(Blueprint $blueprint, Fluent $command): string
     {
-        return 'drop table '.$this->wrapTable($blueprint);
+        return 'drop table if exists '.$this->wrapTable($blueprint);
     }
 
     /**
@@ -488,21 +514,27 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Create the column definition for a float type.
+     *
+     * Seit Laravel 11 hat float() kein $total/$places mehr, sondern nur noch
+     * $precision (Default 53) — siehe Blueprint::float($column, $precision = 53).
+     * DB2 for i bildet das über FLOAT(n) ab: n <= 24 => single, sonst double precision.
      */
     protected function typeFloat(Fluent $column): string
     {
-        return "decimal({$column->total}, {$column->places})";
+        if ($column->precision) {
+            return "float({$column->precision})";
+        }
+
+        return 'float';
     }
 
     /**
      * Create the column definition for a double type.
+     *
+     * DB2 for i kennt kein DOUBLE(p, s) — DOUBLE ist immer 8-Byte Gleitkomma.
      */
     protected function typeDouble(Fluent $column): string
     {
-        if ($column->total && $column->places) {
-            return "double({$column->total}, {$column->places})";
-        }
-
         return 'double';
     }
 
@@ -515,20 +547,57 @@ class DB2SchemaGrammar extends Grammar
     }
 
     /**
+     * Liefert den unqualifizierten Tabellennamen (ohne Schema) für Constraint-Namen.
+     *
+     * Constraint-Namen sind in DB2 for i schemaweit eindeutig und dürfen selbst
+     * keinen Schema-Prefix tragen.
+     */
+    protected function constraintPrefix(Blueprint|Fluent $source): string
+    {
+        $table = $source instanceof Blueprint ? $source->getTable() : (string) $source->prefix;
+        $segments = explode('.', $table);
+
+        return end($segments);
+    }
+
+    /**
      * Create the column definition for a boolean type.
      */
     protected function typeBoolean(Fluent $column): string
     {
-        $definition = 'smallint constraint %s_%s_%s check(%s in(0, 1)) %s';
-
-        return sprintf($definition, $column->type, $column->prefix, $column->name, $column->name, is_null($column->default) ? ' default 0' : '');
+        return sprintf(
+            'smallint constraint %s_%s_%s check(%s in(0, 1))',
+            $column->type,
+            $this->constraintPrefix($column),
+            $column->name,
+            $this->wrap($column->name)
+        );
     }
 
+    /**
+     * Create the column definition for an enum type.
+     *
+     * DB2 for i kennt keinen ENUM-Typ — abgebildet als VARCHAR mit CHECK-Constraint.
+     * Der Constraint-Name wird mit dem Tabellennamen qualifiziert, da Constraint-Namen
+     * schemaweit eindeutig sein müssen. Werte werden SQL-escaped.
+     */
     protected function typeEnum(Fluent $column): string
     {
-        $allowed = array_map(fn (string $v): string => "'{$v}'", $column->allowed);
+        $allowed = implode(', ', array_map(
+            fn ($value): string => "'".str_replace("'", "''", (string) $value)."'",
+            $column->allowed
+        ));
 
-        return 'varchar(255) constraint '.$column->name.'_enum check('.$column->name.' in ('.implode(', ', $allowed).'))';
+        $length = $column->length ?: 255;
+
+        return sprintf(
+            'varchar(%s) constraint %s_%s_enum check(%s in (%s))',
+            $length,
+            $this->constraintPrefix($column),
+            $column->name,
+            $this->wrap($column->name),
+            $allowed
+        );
     }
 
     /**
@@ -626,7 +695,10 @@ class DB2SchemaGrammar extends Grammar
     protected function modifyIncrement(Blueprint $blueprint, Fluent $column): ?string
     {
         if (in_array($column->type, $this->serials) && $column->autoIncrement) {
-            return ' generated by default as identity constraint '.$blueprint->getTable().'_'.$column->name.'_primary primary key';
+            // constraintPrefix() statt getTable(): bei schema-qualifizierten Tabellen
+            // ("MYLIB.users") darf der Constraint-Name selbst keinen Punkt enthalten.
+            return ' generated by default as identity constraint '
+                .$this->constraintPrefix($blueprint).'_'.$column->name.'_primary primary key';
         }
 
         return null;
@@ -694,14 +766,31 @@ class DB2SchemaGrammar extends Grammar
 
     /**
      * Format a value so that it can be used in "default" clauses.
+     *
+     * Booleans werden zu 0/1 normalisiert (DB2 for i bildet boolean als SMALLINT ab;
+     * ein rohes PHP-false würde zu einem leeren DEFAULT interpolieren). String-Werte
+     * werden gequotet und enthaltene Apostrophe verdoppelt — sonst bricht das
+     * SQL-Literal auf (Syntaxfehler bzw. Injection-Vektor).
      */
-    protected function getDefaultValue(mixed $value): string|int|float|bool|Expression
+    protected function getDefaultValue(mixed $value): string|int|float|Expression
     {
-        if ($value instanceof Expression || is_bool($value) || is_numeric($value)) {
+        if ($value instanceof Expression) {
             return $value;
         }
 
-        return "'".strval($value)."'";
+        if (is_bool($value)) {
+            return (int) $value;
+        }
+
+        if ($value instanceof \UnitEnum) {
+            $value = enum_value($value);
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return $value;
+        }
+
+        return "'".str_replace("'", "''", (string) $value)."'";
     }
 
     /**

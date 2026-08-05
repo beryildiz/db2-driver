@@ -13,7 +13,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: 8.3
-      - run: composer install --prefer-dist --no-interaction
+      - run: composer update --prefer-dist --no-interaction
       - run: vendor/bin/pint --test
 
   phpstan:
@@ -23,5 +23,5 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: 8.3
-      - run: composer install --prefer-dist --no-interaction
+      - run: composer update --prefer-dist --no-interaction
       - run: vendor/bin/phpstan analyse --error-format=github

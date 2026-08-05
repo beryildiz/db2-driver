@@ -81,9 +81,12 @@ class DB2QueryGrammar extends Grammar
         $columns = (! empty($components['columns']) ? $components['columns'].', ' : 'select');
 
         if ($columns == 'select *, ' && $query->from) {
-            // Seit Laravel 12 gibt es keine "$this->tablePrefix"-Property mehr auf Grammar;
-            // der Prefix wird über die Connection gehalten.
-            $columns = 'select '.$this->getTablePrefix().$query->from.'.*, ';
+            // wrapTable() statt manueller Prefix-Konkatenation: setzt den Prefix bei
+            // schema-qualifizierten Tabellen auf das letzte Segment (MYLIB.pfx_employees,
+            // nicht pfx_MYLIB.employees), behandelt Aliase und Expression-From korrekt.
+            // Da wrapValue() hier unquoted zurueckgibt, ist die Ausgabe fuer den einfachen
+            // Fall identisch zur bisherigen Konkatenation.
+            $columns = 'select '.$this->wrapTable($query->from).'.*, ';
         }
 
         $components['columns'] = $this->compileOver($orderings, $columns);

@@ -15,7 +15,7 @@ class DB2Processor extends Processor
 
         if (is_array($sequence)) {
             // Grammar der Query nutzen statt einer neuen, unkonfigurierten Instanz —
-            // sonst geht der Table-Prefix verloren (siehe DB2QueryGrammar::getTablePrefix()).
+            // sonst geht der Table-Prefix verloren.
             $sequenceStr = $query->getGrammar()->columnize($sequence);
         }
 
@@ -27,15 +27,32 @@ class DB2Processor extends Processor
             return array_values((array) $results[0]);
         }
 
-        $result = (array) $results[0];
-        $id = $result[$sequenceStr] ?? $result[strtoupper($sequenceStr)];
+        // IBM i liefert Spaltennamen je nach PDO::ATTR_CASE in Groß- oder Kleinschreibung —
+        // daher case-insensitiver Zugriff statt zweier Einzelabfragen.
+        $result = array_change_key_case((array) $results[0], CASE_LOWER);
+        $key = strtolower((string) $sequenceStr);
+
+        if (! array_key_exists($key, $result)) {
+            throw new \RuntimeException(sprintf(
+                'DB2Processor: Spalte "%s" nicht im Ergebnis von INSERT ... FROM NEW TABLE enthalten. Vorhanden: %s',
+                $sequenceStr,
+                implode(', ', array_keys($result)) ?: '(keine)'
+            ));
+        }
+
+        $id = $result[$key];
 
         return is_numeric($id) ? (int) $id : $id;
     }
 
     /**
      * Process the results of a column listing query.
-     * This was present in Illuminate\Database\Query\Processor.php 9.x but later removed.
+     *
+     * War in Illuminate\Database\Query\Processors\Processor bis 9.x vorhanden und wurde
+     * danach entfernt; DB2Builder::getColumnListing() nutzt den Hook weiterhin.
+     *
+     * @param  array<int, mixed>  $results
+     * @return array<int, mixed>
      */
     public function processColumnListing($results): array
     {

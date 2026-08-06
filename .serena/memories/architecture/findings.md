@@ -1,12 +1,43 @@
 # Architektur-Befunde — db2-driver
 
 Stand: Option-B-Umsetzung abgeschlossen (Laravel-12-Migration + Bugfixes, ohne Introspection).
+v1.0.0 auf Packagist veröffentlicht und in einem echten Verbraucherprojekt gegen eine
+produktive IBM-i-Instanz verifiziert (siehe „Produktiv-Verifikation" unten).
 
 ## Status: alle Befunde geschlossen
 
 `vendor/bin/pint --test` ✅ · `vendor/bin/phpstan analyse` ✅ 0 Fehler · `vendor/bin/pest` ✅ 102 Tests
 
 **Kein offener Blocker, kein unverifiziertes Katalog-SQL im Paket.**
+
+## Produktiv-Verifikation gegen echtes IBM i (nicht nur gemockt)
+
+Alle Unit-/Pest-Tests im Paket laufen gegen gemockte `Connection`/`Grammar`-Instanzen (kein
+CI-Zugang zu echter IBM-i-Hardware). Ein Verbraucherprojekt hat `beryildiz/db2-driver` v1.0.0
+per `composer require` gezogen und gegen eine echte IBM-i-Instanz produktiv getestet:
+
+- **Read via Eloquent**: `Modelp::query()->select([...])->where(...)->where(...)->get()` sowie
+  `Grrastp::query()->where(...)->where(...)->orderBy(...)->orderBy(...)->get()` — mehrere
+  `where()`/`orderBy()`-Ketten, explizite Spaltenlisten mit Groß-/Kleinschreibung wie in DB2
+  üblich (`MOSAIS`, `FORM8`, `GRTXT`), führende Nullen/Buchstaben in String-Werten (`030`,
+  `30K`, `30L`) bleiben unverändert — kein Cast-/Truncation-Problem.
+- **Vollständiger CRUD-Roundtrip** (`Berkan`-Model, Tabelle `LEIOBJ.BERKAN`, PHPUnit-Integrationstest
+  mit `setUp()`/`tearDown()`-Cleanup gegen eine reservierte Test-ID):
+  - `create()` → bestätigt `DB2Processor::processInsertGetId()` (liest den Key case-insensitiv
+    zurück, auch wenn `ID` explizit statt über eine Identity-Spalte vergeben wird — die
+    `SELECT … FROM NEW TABLE`-Umhüllung funktioniert auch dafür).
+  - `find()` → Primary-Key-Lookup über schema-qualifizierte Tabelle (`LEIOBJ.BERKAN`) liefert
+    korrekt.
+  - `update()` → `compileUpdate()` mit mehreren geänderten Spalten inkl. reinem Datumsfeld
+    (`Y-m-d`, kein Timestamp-Cast-Problem).
+  - `delete()` → `compileDelete()` mit WHERE-Bedingung, anschließendes `find()` liefert `null`.
+
+**Damit verifiziert:** `DB2Connection`/`DB2QueryGrammar`/`DB2Processor` funktionieren nicht nur
+API-kompatibel unter Laravel 12 (statisch/gemockt geprüft), sondern erzeugen auch tatsächlich
+korrektes, ausführbares SQL gegen eine echte DB2-for-i-Instanz — für Lese- und Schreibpfade via
+Eloquent. Nicht durch dieses Beispiel abgedeckt: `upsert()`/`insertOrIgnore()` (bekannt
+unsupported), Relations, Soft Deletes, Pagination via `offset()`/`limit()` im Produktivbetrieb,
+Schema-Introspection.
 
 ## Referenz-Fork (wichtig für künftige Upgrades)
 

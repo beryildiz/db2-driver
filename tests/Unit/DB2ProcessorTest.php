@@ -101,6 +101,69 @@ it('processInsertGetId gibt bei Array-Sequence alle Werte zurück', function () 
         ->toBe(['1', '2']);
 });
 
+// ---------------------------------------------------------------------------
+// processSelect — Pagination / Aggregate-Case-Fix
+// ---------------------------------------------------------------------------
+
+it('processSelect gibt normale SELECT-Ergebnisse unverändert zurück', function () {
+    $processor = new DB2Processor;
+    $builder = makeRecordingQueryBuilder([]);
+
+    $row = new stdClass;
+    $row->FORM8 = 'A';
+    $row->ARTDE = 'Widget';
+
+    $results = $processor->processSelect($builder, [$row]);
+
+    // Kein Aggregat gesetzt → Original-Objekte unverändert durchgereicht.
+    expect($results[0])->toBe($row)
+        ->and($results[0]->FORM8)->toBe('A');
+});
+
+it('processSelect normalisiert Aggregate-Spaltennamen auf Kleinschreibung', function () {
+    $processor = new DB2Processor;
+
+    // IBM i liefert AGGREGATE statt aggregate.
+    $row = new stdClass;
+    $row->AGGREGATE = '42';
+
+    // $query->aggregate muss gesetzt sein (wie bei count(), sum() etc.).
+    $builder = makeRecordingQueryBuilder([$row]);
+    $builder->aggregate = ['function' => 'count', 'columns' => ['*']];
+
+    $results = $processor->processSelect($builder, [$row]);
+
+    // Builder::getCountForPagination() greift via ->aggregate zu.
+    expect($results[0]->aggregate)->toBe('42')
+        ->and(isset($results[0]->AGGREGATE))->toBeFalse();
+});
+
+it('processSelect normalisiert auch lowercase Aggregate-Spaltennamen (kein Doppel-Key)', function () {
+    $processor = new DB2Processor;
+
+    $row = new stdClass;
+    $row->aggregate = '7';
+
+    $builder = makeRecordingQueryBuilder([$row]);
+    $builder->aggregate = ['function' => 'count', 'columns' => ['*']];
+
+    $results = $processor->processSelect($builder, [$row]);
+
+    expect($results[0]->aggregate)->toBe('7');
+});
+
+it('processSelect lässt Nicht-Objekte in Aggregate-Ergebnissen unberührt', function () {
+    $processor = new DB2Processor;
+
+    $builder = makeRecordingQueryBuilder([]);
+    $builder->aggregate = ['function' => 'count', 'columns' => ['*']];
+
+    $results = $processor->processSelect($builder, [['AGGREGATE' => '3']]);
+
+    // Array-Zeilen werden nicht transformiert (Builder-Fallback greift selbst).
+    expect($results[0])->toBe(['AGGREGATE' => '3']);
+});
+
 it('processInsertGetId umhüllt das INSERT mit SELECT FROM NEW TABLE', function () {
     $row = new stdClass;
     $row->ID = '1';

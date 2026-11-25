@@ -91,7 +91,9 @@ class DB2Connector extends Connector implements ConnectorInterface
     {
         $value = (string) $value;
 
-        if (str_starts_with($value, '{') && str_ends_with($value, '}')) {
+        // Nur gültig geklammerte Werte ({…} mit intern verdoppelten "}") durchreichen —
+        // "{a};Database=x}" wäre sonst eine Keyword-Injection in den DSN.
+        if (preg_match('/^\{(?:[^}]|\}\})*\}$/', $value) === 1) {
             return $value;
         }
 

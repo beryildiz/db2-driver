@@ -144,3 +144,15 @@ it('getDsn lässt Port weg wenn nicht konfiguriert', function (array $config) {
     'null' => [baseDsnConfig(['port' => null])],
     'leerer String' => [baseDsnConfig(['port' => ''])],
 ]);
+
+it('getDsn escaped Werte, die nur scheinbar geklammert sind', function (string $password, string $expected) {
+    // Nur ein gültig geklammerter Wert ({…} mit intern verdoppelten "}") wird durchgereicht —
+    // sonst ließen sich über "{a};Database=x}" weitere Keywords in den DSN schmuggeln.
+    $dsn = (new DB2Connector)->getDsn(baseDsnConfig(['password' => $password]));
+
+    expect($dsn)->toEndWith('Password='.$expected);
+})->with([
+    'schließende Klammer mittendrin' => ['{a}b}', '{{a}}b}}}'],
+    'Keyword-Injection' => ['{a};Database=evil}', '{{a}};Database=evil}}}'],
+    'gültig geklammert mit }}' => ['{a}}b}', '{a}}b}'],
+]);

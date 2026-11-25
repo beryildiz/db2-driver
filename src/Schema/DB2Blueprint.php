@@ -131,15 +131,34 @@ class DB2Blueprint extends Blueprint
      */
     public function boolean($column)
     {
-        $prefix = $this->table;
-        // Schema name is not needed in the check constraint prefix for boolean type
-        $schemaTable = explode('.', $this->table);
+        return $this->addColumn('boolean', $column, ['prefix' => $this->unqualifiedTable()]);
+    }
 
-        if (count($schemaTable) > 1) {
-            $prefix = $schemaTable[1];
-        }
+    /**
+     * Create a new enum column on the table.
+     *
+     * Setzt wie boolean() den unqualifizierten Tabellennamen als prefix, aus dem
+     * DB2SchemaGrammar::typeEnum() den schemaweit eindeutigen Constraint-Namen bildet.
+     *
+     * @return ColumnDefinition
+     */
+    public function enum($column, array $allowed)
+    {
+        // parent::enum() normalisiert PHP-Enum-Werte (enum_value) — das bleibt erhalten.
+        $definition = parent::enum($column, $allowed);
+        $definition->prefix = $this->unqualifiedTable();
 
-        return $this->addColumn('boolean', $column, ['prefix' => $prefix]);
+        return $definition;
+    }
+
+    /**
+     * Tabellenname ohne Schema (Constraint-Namen dürfen keinen Schema-Prefix tragen).
+     */
+    private function unqualifiedTable(): string
+    {
+        $segments = explode('.', $this->table);
+
+        return end($segments);
     }
 
     /**

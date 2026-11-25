@@ -593,8 +593,9 @@ class DB2SchemaGrammar extends Grammar
      * Create the column definition for an enum type.
      *
      * DB2 for i kennt keinen ENUM-Typ — abgebildet als VARCHAR mit CHECK-Constraint.
-     * Der Constraint-Name wird mit dem Tabellennamen qualifiziert, da Constraint-Namen
-     * schemaweit eindeutig sein müssen. Werte werden SQL-escaped.
+     * Der Constraint-Name lautet enum_{tabelle}_{spalte}: die Tabelle kommt aus dem von
+     * DB2Blueprint::enum() gesetzten prefix (Constraint-Namen sind schemaweit eindeutig und
+     * müssen mit einem Buchstaben beginnen). Werte werden SQL-escaped.
      */
     protected function typeEnum(Fluent $column): string
     {
@@ -606,7 +607,7 @@ class DB2SchemaGrammar extends Grammar
         $length = $column->length ?: 255;
 
         return sprintf(
-            'varchar(%s) constraint %s_%s_enum check(%s in (%s))',
+            'varchar(%s) constraint enum_%s_%s check(%s in (%s))',
             $length,
             $this->constraintPrefix($column),
             $column->name,

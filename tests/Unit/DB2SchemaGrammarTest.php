@@ -519,3 +519,14 @@ it('modifyStartWith gibt bei autoIncrement-Spalten nichts aus', function () {
 
     expect(callProtected($grammar, 'modifyStartWith', makeBlueprint('orders'), $column))->toBeNull();
 });
+
+it('typeEnum benennt den Constraint enum_{tabelle}_{spalte}', function () {
+    $grammar = new DB2SchemaGrammar(makeConnection());
+    $column = new Fluent(['type' => 'enum', 'name' => 'status', 'prefix' => 'orders', 'allowed' => ['a', 'b']]);
+
+    $sql = callProtected($grammar, 'typeEnum', $column);
+
+    expect($sql)
+        ->toBe("varchar(255) constraint enum_orders_status check(status in ('a', 'b'))")
+        ->not->toMatch('/constraint _/');
+});

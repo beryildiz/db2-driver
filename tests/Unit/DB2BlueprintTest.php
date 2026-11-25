@@ -177,3 +177,13 @@ it('setReplyListSequenceNumber und getReplyListSequenceNumber sind symmetrisch',
 
     expect($blueprint->getReplyListSequenceNumber())->toBe(4711);
 });
+
+it('enum setzt den unqualifizierten Tabellennamen als prefix', function () {
+    $blueprint = makeDB2Blueprint('MYLIB.orders');
+    $blueprint->enum('status', ['a', 'b']);
+
+    $column = $blueprint->getColumns()[0];
+
+    expect($column->prefix)->toBe('orders')
+        ->and($column->allowed)->toBe(['a', 'b']);
+});

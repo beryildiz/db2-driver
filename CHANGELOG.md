@@ -2,17 +2,17 @@
 
 All notable changes to `beryildiz/db2-driver` will be documented in this file.
 
-## [Unreleased]
+## [1.0.2] - 2026-11-25
 
 ### Fixed
 
 - `compileExists()` aliases the probe column as `1 as "exists"`. `EXISTS` is a reserved word on DB2 for i, and the delimited lower-case alias is returned as `exists` regardless of `PDO::ATTR_CASE` (except `CASE_UPPER`), which Laravel's `Builder::exists()` relies on.
-- `DB2Connector::getDsn()` wraps values containing `;`, `{`, `}` or leading/trailing blanks in `{…}` (doubling `}`), so e.g. passwords with a semicolon no longer break the connection string. Plain values produce a byte-identical DSN. `Port` is only appended when configured — it is not an IBM i Access ODBC keyword, and a missing `port` key no longer raises an "undefined array key" warning.
+- `DB2Connector::getDsn()` wraps values containing `;`, `{`, `}` or leading/trailing blanks in `{…}` (doubling `}`), so e.g. passwords with a semicolon no longer break the connection string. Plain values produce a byte-identical DSN. Values are passed through unchanged only if they are validly braced (`{…}` with inner `}` doubled), so a value like `{a};Database=x}` cannot inject further keywords. `Port` is only appended when configured — it is not an IBM i Access ODBC keyword, and a missing `port` key no longer raises an "undefined array key" warning.
 - `compileDropColumn()` separates multiple clauses with blanks (`drop column a drop column b`); the previous comma-separated form is invalid on DB2 for i (affects `dropColumn([...])`, `dropTimestamps()`, `dropSynchro()`).
 - `compileForeign()` throws a `RuntimeException` for `ON UPDATE CASCADE | SET NULL | SET DEFAULT`; DB2 for i only supports `NO ACTION` and `RESTRICT`.
 - `compileLabel()` escapes single quotes in the label.
 - `startWith` on identity columns is emitted directly after `AS IDENTITY` instead of after the `PRIMARY KEY` constraint.
-- Enum check constraints are named `enum_{table}_{column}`. The previous name `_{column}_enum` was not a valid identifier and was not unique per schema.
+- Enum check constraints are named `enum_{table}_{column}`. The previous name `_{column}_enum` was not a valid identifier and was not unique per schema. `DB2Blueprint::addColumn()` now sets the table prefix for `boolean` and `enum` columns centrally, so this also applies to `addColumn('enum', …)` without the `enum()` helper.
 
 ### Changed
 

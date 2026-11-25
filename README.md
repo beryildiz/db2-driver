@@ -28,7 +28,7 @@ stalled:
 
 ## Requirements
 - PHP `^8.2`
-- IBM i 7.3 TR9, 7.4 TR3 or 7.5 (for `Schema::dropIfExists()`)
+- IBM i 7.3 TR9, 7.4 TR3, or 7.5 and later (for `Schema::dropIfExists()`)
 - Laravel 12 (`illuminate/* ^12.0`) — this version supports **exclusively** Laravel 12, see [CHANGELOG.md](CHANGELOG.md)
 - PHP PDO_ODBC extension
 - IBM i Access ODBC Driver ([Windows & Linux](https://ibmi-oss-docs.readthedocs.io/en/latest/odbc/installation.html))
@@ -186,7 +186,7 @@ Supported: `char`, `string`, `text`, `mediumText`, `longText`, `bigInteger`, `in
 - The `schema` key in your connection config is effectively **required** — `hasTable()` and
   `getColumnListing()` resolve unqualified table names against it.
 - `Schema::dropIfExists()` emits `DROP TABLE IF EXISTS` and therefore needs **IBM i 7.3 TR9,
-  7.4 TR3 or 7.5**.
+  7.4 TR3, or 7.5 and later**.
 - `dropColumn()` cascades on IBM i: dependent indexes, views and constraints (including
   foreign keys) are dropped together with the column.
 - `dropColumn()` and `renameColumn()` add a **system-wide** reply list entry (`CPA32B2`) for

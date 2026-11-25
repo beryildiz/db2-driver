@@ -125,30 +125,22 @@ class DB2Blueprint extends Blueprint
     }
 
     /**
-     * Create a new boolean column on the table.
+     * Add a new column to the blueprint.
+     *
+     * Boolean- und Enum-Spalten erzeugen einen CHECK-Constraint, dessen Name aus dem
+     * unqualifizierten Tabellennamen gebildet wird (siehe DB2SchemaGrammar::typeBoolean()/
+     * typeEnum()). Der prefix wird hier zentral gesetzt — so auch bei direktem
+     * addColumn('enum', …) ohne die boolean()/enum()-Helfer.
      *
      * @return ColumnDefinition
      */
-    public function boolean($column)
+    public function addColumn($type, $name, array $parameters = [])
     {
-        return $this->addColumn('boolean', $column, ['prefix' => $this->unqualifiedTable()]);
-    }
+        if (in_array($type, ['boolean', 'enum'], true) && ! isset($parameters['prefix'])) {
+            $parameters['prefix'] = $this->unqualifiedTable();
+        }
 
-    /**
-     * Create a new enum column on the table.
-     *
-     * Setzt wie boolean() den unqualifizierten Tabellennamen als prefix, aus dem
-     * DB2SchemaGrammar::typeEnum() den schemaweit eindeutigen Constraint-Namen bildet.
-     *
-     * @return ColumnDefinition
-     */
-    public function enum($column, array $allowed)
-    {
-        // parent::enum() normalisiert PHP-Enum-Werte (enum_value) — das bleibt erhalten.
-        $definition = parent::enum($column, $allowed);
-        $definition->prefix = $this->unqualifiedTable();
-
-        return $definition;
+        return parent::addColumn($type, $name, $parameters);
     }
 
     /**

@@ -187,3 +187,10 @@ it('enum setzt den unqualifizierten Tabellennamen als prefix', function () {
     expect($column->prefix)->toBe('orders')
         ->and($column->allowed)->toBe(['a', 'b']);
 });
+
+it('addColumn setzt den Tabellen-prefix auch ohne enum()/boolean()-Helfer', function (string $type) {
+    $blueprint = makeDB2Blueprint('MYLIB.orders');
+    $blueprint->addColumn($type, 'status', $type === 'enum' ? ['allowed' => ['a']] : []);
+
+    expect($blueprint->getColumns()[0]->prefix)->toBe('orders');
+})->with(['enum', 'boolean']);

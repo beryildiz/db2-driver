@@ -4,6 +4,23 @@ All notable changes to `beryildiz/db2-driver` will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `compileExists()` aliases the probe column as `1 as "exists"`. `EXISTS` is a reserved word on DB2 for i, and the delimited lower-case alias is returned as `exists` regardless of `PDO::ATTR_CASE` (except `CASE_UPPER`), which Laravel's `Builder::exists()` relies on.
+- `DB2Connector::getDsn()` wraps values containing `;`, `{`, `}` or leading/trailing blanks in `{…}` (doubling `}`), so e.g. passwords with a semicolon no longer break the connection string. Plain values produce a byte-identical DSN. `Port` is only appended when configured — it is not an IBM i Access ODBC keyword, and a missing `port` key no longer raises an "undefined array key" warning.
+- `compileDropColumn()` separates multiple clauses with blanks (`drop column a drop column b`); the previous comma-separated form is invalid on DB2 for i (affects `dropColumn([...])`, `dropTimestamps()`, `dropSynchro()`).
+- `compileForeign()` throws a `RuntimeException` for `ON UPDATE CASCADE | SET NULL | SET DEFAULT`; DB2 for i only supports `NO ACTION` and `RESTRICT`.
+- `compileLabel()` escapes single quotes in the label.
+- `startWith` on identity columns is emitted directly after `AS IDENTITY` instead of after the `PRIMARY KEY` constraint.
+- Enum check constraints are named `enum_{table}_{column}`. The previous name `_{column}_enum` was not a valid identifier and was not unique per schema.
+
+### Changed
+
+- `LICENSE.md` and `composer.json` now credit all original authors: Maxime Rault (cooperl22/laravel-db2) and Bennett Black / BWICompanies (BWICompanies/db2-driver).
+- README: corrected the minimum IBM i release for `DROP TABLE IF EXISTS` (7.3 TR9 / 7.4 TR3 / 7.5), the `DateSeparator` keyword, documented that `CommitMode => 0` disables transactions, and the cascading/reply-list caveats of `dropColumn()`.
+
+## [1.0.1] - 2026-08-06
+
 ### Breaking
 
 - Package now exclusively supports Laravel 12 (`illuminate/* ^12.0`, PHP `^8.2`). Dropped support for Laravel 9/10/11.

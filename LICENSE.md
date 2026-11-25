@@ -1,6 +1,8 @@
 MIT License
 
-Copyright (c) [2022] [BWICompanies, Inc]
+Copyright (c) 2015 Maxime Rault (cooperl22/laravel-db2)
+Copyright (c) 2022 BWICompanies, Inc
+Copyright (c) 2026 Berkan Yildiz
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

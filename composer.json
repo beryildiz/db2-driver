@@ -11,7 +11,18 @@
     "authors": [
         {
             "name": "Beryildiz",
-            "role": "Developer"
+            "homepage": "https://github.com/beryildiz/db2-driver",
+            "role": "Maintainer"
+        },
+        {
+            "name": "Bennett Black",
+            "homepage": "https://github.com/BWICompanies/db2-driver",
+            "role": "Original author (BWICompanies/db2-driver)"
+        },
+        {
+            "name": "Maxime Rault",
+            "homepage": "https://github.com/cooperl22/laravel-db2",
+            "role": "Original author (cooperl22/laravel-db2)"
         }
     ],
     "require": {

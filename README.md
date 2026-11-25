@@ -28,7 +28,7 @@ stalled:
 
 ## Requirements
 - PHP `^8.2`
-- IBM i 7.2 or later (for `Schema::dropIfExists()`)
+- IBM i 7.3 TR9, 7.4 TR3 or 7.5 (for `Schema::dropIfExists()`)
 - Laravel 12 (`illuminate/* ^12.0`) — this version supports **exclusively** Laravel 12, see [CHANGELOG.md](CHANGELOG.md)
 - PHP PDO_ODBC extension
 - IBM i Access ODBC Driver ([Windows & Linux](https://ibmi-oss-docs.readthedocs.io/en/latest/odbc/installation.html))
@@ -53,7 +53,6 @@ Add a new connection in `database.php`:
     'database'      => env('DB_DATABASE'),
     'prefix'        => '',
     'schema'        => env('DB_SCHEMA'),
-    'port'          => env('DB_PORT', 50000),
     'date_format'   => 'Y-m-d H:i:s', // or 'Y-m-d H:i:s.u' / 'Y-m-d-H.i.s.u'
     'offset_compatibility_mode' => true,
     'odbc_keywords' => [
@@ -82,7 +81,7 @@ Add a new connection in `database.php`:
     'Naming'                => 1,
     'UNICODESQL'            => 0,
     'DateFormat'            => 5,
-    'DateSeperator'         => 0,
+    'DateSeparator'         => 0,
     'Decimal'               => 0,
     'TimeFormat'            => 0,
     'TimeSeparator'         => 0,
@@ -130,6 +129,11 @@ Add a new connection in `database.php`:
 See [DB2 Connection String Keywords](https://www.ibm.com/docs/fr/i/7.3?topic=details-connection-string-keywords)
 for what each key does.
 
+> **Transactions:** `CommitMode => 0` means commitment control `*NONE` (commit immediate).
+> With it, `DB::transaction()`, rollbacks and savepoints have no effect — every change is
+> committed as soon as it runs. For real transactions use `CommitMode` 1–4 (the ODBC driver's
+> own default is 2) and make sure the affected tables are journaled.
+
 </details>
 
 ## Limitations
@@ -160,6 +164,7 @@ runs your `down()` methods) instead.
 |---|---|
 | `schema:dump`, `migrate --schema-path` | `BadMethodCallException` (no `getSchemaState()`) |
 | `Schema::withoutForeignKeyConstraints()` | not supported by DB2 for i |
+| `cascadeOnUpdate()`, `nullOnUpdate()` | `RuntimeException` — DB2 for i only supports `ON UPDATE NO ACTION` / `RESTRICT` |
 | `Schema::createDatabase()` / `dropDatabaseIfExists()` | `LogicException` |
 | `upsert()`, `insertOrIgnore()` | `RuntimeException` |
 | `inRandomOrder()` | emits `RANDOM()`; DB2 for i uses `RAND()` |
@@ -180,8 +185,13 @@ Supported: `char`, `string`, `text`, `mediumText`, `longText`, `bigInteger`, `in
 
 - The `schema` key in your connection config is effectively **required** — `hasTable()` and
   `getColumnListing()` resolve unqualified table names against it.
-- `Schema::dropIfExists()` emits `DROP TABLE ... IF EXISTS` and therefore needs **IBM i 7.2 or
-  later**.
+- `Schema::dropIfExists()` emits `DROP TABLE IF EXISTS` and therefore needs **IBM i 7.3 TR9,
+  7.4 TR3 or 7.5**.
+- `dropColumn()` cascades on IBM i: dependent indexes, views and constraints (including
+  foreign keys) are dropped together with the column.
+- `dropColumn()` and `renameColumn()` add a **system-wide** reply list entry (`CPA32B2`) for
+  the duration of the blueprint and remove it afterwards. If the migration aborts in between,
+  the entry stays active and must be removed manually with `WRKRPYLE`.
 - `$table->index($columns, 'name')` honours the given index name. Releases before the Laravel 12
   rewrite silently replaced it with a generated one, so index names may differ from what an
   older version of this package created.

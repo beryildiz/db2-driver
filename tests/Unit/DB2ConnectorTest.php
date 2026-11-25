@@ -88,3 +88,59 @@ it('getDsn ohne odbc_keywords enthält keine zusätzlichen Segmente', function (
     $segments = explode(';', $dsn);
     expect($segments)->toHaveCount(6);
 });
+
+// ---------------------------------------------------------------------------
+// DSN-Escaping (ODBC-Konvention: Werte mit Sonderzeichen in {…}, "}" wird zu "}}")
+// ---------------------------------------------------------------------------
+
+function baseDsnConfig(array $overrides = []): array
+{
+    return array_merge([
+        'driverName' => '{IBM i Access ODBC Driver}',
+        'host' => 'myserver',
+        'port' => 446,
+        'database' => 'MYDB',
+        'username' => 'user1',
+        'password' => 'secret',
+    ], $overrides);
+}
+
+it('getDsn klammert Werte mit Semikolon und verdoppelt schließende Klammern', function () {
+    $dsn = (new DB2Connector)->getDsn(baseDsnConfig(['password' => 'pa;ss}x']));
+
+    expect($dsn)->toContain('Password={pa;ss}}x}');
+});
+
+it('getDsn klammert odbc_keywords-Werte mit Semikolon', function () {
+    $dsn = (new DB2Connector)->getDsn(baseDsnConfig(['odbc_keywords' => ['DefaultLibraries' => 'A;B']]));
+
+    expect($dsn)->toContain('DefaultLibraries={A;B}');
+});
+
+it('getDsn lässt bereits geklammerte Werte unverändert', function () {
+    $dsn = (new DB2Connector)->getDsn(baseDsnConfig(['password' => '{abc}']));
+
+    expect($dsn)
+        ->toContain('DRIVER={IBM i Access ODBC Driver};')
+        ->not->toContain('{{IBM')
+        ->toContain('Password={abc}')
+        ->not->toContain('Password={{abc}}}');
+});
+
+it('getDsn ist für Werte ohne Sonderzeichen identisch zu 1.0.1', function () {
+    $dsn = (new DB2Connector)->getDsn(baseDsnConfig(['odbc_keywords' => ['CommitMode' => 2]]));
+
+    expect($dsn)->toBe('odbc:DRIVER={IBM i Access ODBC Driver};System=myserver;Port=446;Database=MYDB;UserID=user1;Password=secret;CommitMode=2');
+});
+
+it('getDsn lässt Port weg wenn nicht konfiguriert', function (array $config) {
+    $dsn = (new DB2Connector)->getDsn($config);
+
+    expect($dsn)
+        ->not->toContain('Port=')
+        ->toBe('odbc:DRIVER={IBM i Access ODBC Driver};System=myserver;Database=MYDB;UserID=user1;Password=secret');
+})->with([
+    'ohne Key' => [array_diff_key(baseDsnConfig(), ['port' => true])],
+    'null' => [baseDsnConfig(['port' => null])],
+    'leerer String' => [baseDsnConfig(['port' => ''])],
+]);

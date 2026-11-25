@@ -101,15 +101,19 @@ it('setOffsetCompatibilityMode(false) schaltet FETCH FIRST ab', function () {
     expect($sql)->toContain('limit');
 });
 
-it('compileExists erzeugt valides SQL mit 1 exists und FETCH FIRST 1 ROWS ONLY', function () {
+it('compileExists nutzt einen gequoteten, kleingeschriebenen exists-Alias', function () {
+    // EXISTS ist in Db2 for i ein reserviertes Wort; Laravels Builder::exists() liest
+    // $results['exists'] — der delimited Alias kommt unabhängig von PDO::ATTR_CASE klein zurück.
     $grammar = new DB2QueryGrammar(makeConnection());
     $builder = makeQueryBuilder();
     $builder->from('users');
 
     $sql = $grammar->compileExists($builder);
 
-    expect($sql)->toContain('1 exists');
-    expect($sql)->toContain('FETCH FIRST 1 ROWS ONLY');
+    expect($sql)
+        ->toContain('select 1 as "exists" from users')
+        ->not->toContain('1 exists')
+        ->toContain('FETCH FIRST 1 ROWS ONLY');
 });
 
 // Hilfsfunktion: Erstellt eine Grammar, deren Connection einen Table-Prefix trägt.

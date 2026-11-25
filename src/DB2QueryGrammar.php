@@ -153,7 +153,10 @@ class DB2QueryGrammar extends Grammar
 
         $existsQuery->columns = [];
 
-        return $this->compileSelect($existsQuery->selectRaw('1 exists')->limit(1));
+        // EXISTS ist in Db2 for i reserviert und muss als delimited identifier stehen.
+        // Laravels Builder::exists() liest $results['exists'] — der gequotete, kleingeschriebene
+        // Alias kommt unabhängig von PDO::ATTR_CASE (außer CASE_UPPER) als "exists" zurück.
+        return $this->compileSelect($existsQuery->selectRaw('1 as "exists"')->limit(1));
     }
 
     /**

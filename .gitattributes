@@ -17,3 +17,18 @@
 /UPGRADING.md       export-ignore
 /phpstan.neon.dist  export-ignore
 /phpstan-baseline.neon  export-ignore
+/phpstan.neon       export-ignore
+/pint.json          export-ignore
+/build              export-ignore
+
+# AI agent tooling
+/.serena            export-ignore
+/.superpowers       export-ignore
+/.claude            export-ignore
+/CLAUDE.md          export-ignore
+/AGENTS.md          export-ignore
+/.opencode          export-ignore
+/opencode.json      export-ignore
+/agentforge.yaml    export-ignore
+/agentforge.lock    export-ignore
+/.agentforge.json   export-ignore

@@ -2,6 +2,12 @@
 
 All notable changes to `beryildiz/db2-driver` will be documented in this file.
 
+## [1.0.3] - 2026-11-27
+
+### Changed
+
+- The distributed package now only contains `src/`, `composer.json`, `README.md`, `CHANGELOG.md` and `LICENSE.md`. Agent tooling (`.serena/`, `.superpowers/` and similar) and dev configuration (`phpstan.neon`, `pint.json`, `build/`) are excluded via `export-ignore`.
+
 ## [1.0.2] - 2026-11-25
 
 ### Fixed
